@@ -1,4 +1,4 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4050';
 
 export type Metric = { label: string; value: number; tone: string; currency?: boolean };
 export type Order = { id: string; channel: string; customer: string; status: string; items: number; value: number; city: string; sla: string };
