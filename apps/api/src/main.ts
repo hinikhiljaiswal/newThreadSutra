@@ -16,7 +16,19 @@ async function bootstrap() {
   });
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true, forbidNonWhitelisted: true }));
   app.setGlobalPrefix('api');
-  await app.listen(process.env.PORT ? Number(process.env.PORT) : 4050);
+
+  const port = process.env.PORT ? Number(process.env.PORT) : 4050;
+  try {
+    await app.listen(port);
+    console.log(`Nest application is listening on port ${port}`);
+  } catch (error) {
+    if (error instanceof Error && (error as any).code === 'EADDRINUSE') {
+      console.error(`Port ${port} is already in use. Please free the port or set a different PORT environment variable.`);
+    } else {
+      console.error('Failed to start Nest application:', error);
+    }
+    process.exit(1);
+  }
 }
 
 bootstrap();
