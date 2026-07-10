@@ -10,7 +10,9 @@
     "build": "npm run build --workspace apps/api && npm run build --workspace apps/web",
     "lint": "npm run lint --workspace apps/web",
     "start:api": "npm run start --workspace apps/api",
-    "start:web": "npm run start --workspace apps/web"
+    "start:web": "npm run start --workspace apps/web",
+    "start": "concurrently \"npm run start --workspace apps/api\" \"npm run start --workspace apps/web\""
+
   },
   "devDependencies": {
     "concurrently": "^9.2.1",
