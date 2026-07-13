@@ -6,10 +6,13 @@ import { demoUser } from '../common/data';
 export class AuthService {
   constructor(private readonly jwt: JwtService) {}
 
-  login(input: { organization: string; username: string; password: string }) {
-    const organization = input.organization.trim().toUpperCase();
-    const username = input.username.trim();
-    if (organization !== demoUser.organization || username !== demoUser.username || input.password !== demoUser.password) {
+  login(input: { loginId?: string; organization?: string; username?: string; password: string }) {
+    const loginId = input.loginId?.trim();
+    const organization = (input.organization?.trim() || loginId?.slice(0, 4) || '').toUpperCase();
+    const username = input.username?.trim() || loginId?.slice(4) || '';
+    const password = input.password.trim();
+
+    if (organization !== demoUser.organization || username.toLowerCase() !== demoUser.username.toLowerCase() || password !== demoUser.password) {
       throw new UnauthorizedException('Invalid organization, user, or password');
     }
 

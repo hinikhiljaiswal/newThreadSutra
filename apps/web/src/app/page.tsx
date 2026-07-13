@@ -200,9 +200,10 @@ function LoginScreen({ onLogin }: { onLogin: (user: Session) => void }) {
     setBusy(true);
     setError('');
     try {
-      const organization = loginId.slice(0, 4).toUpperCase();
-      const username = loginId.slice(4);
-      const response = await api.login({ organization, username, password });
+      const normalizedLoginId = loginId.trim();
+      const organization = normalizedLoginId.slice(0, 4).toUpperCase();
+      const username = normalizedLoginId.slice(4);
+      const response = await api.login({ loginId: normalizedLoginId, organization, username, password });
       window.localStorage.setItem('eretail-token', response.token);
       window.localStorage.setItem('eretail-session', JSON.stringify(response.user));
       onLogin(response.user);

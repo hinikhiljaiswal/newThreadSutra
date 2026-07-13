@@ -1,13 +1,19 @@
 import { Body, Controller, Get, Headers, Post, UnauthorizedException } from '@nestjs/common';
-import { IsString, MinLength } from 'class-validator';
+import { IsOptional, IsString, MinLength } from 'class-validator';
 import { AuthService } from './auth.service';
 
 class LoginDto {
+  @IsOptional()
   @IsString()
-  organization!: string;
+  loginId?: string;
 
+  @IsOptional()
   @IsString()
-  username!: string;
+  organization?: string;
+
+  @IsOptional()
+  @IsString()
+  username?: string;
 
   @IsString()
   @MinLength(4)
