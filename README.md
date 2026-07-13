@@ -44,4 +44,4 @@ Use the included `render.yaml` Blueprint, or create two Render web services manu
 
 Set the API service env vars `JWT_SECRET`, `MONGODB_URI`, and `WEB_ORIGIN` or `WEB_ORIGIN_HOST`. Set the web service env var `NEXT_PUBLIC_API_URL` or `NEXT_PUBLIC_API_HOST`.
 
-If you intentionally deploy both apps into one Render web service, use `npm run start:all`. In that mode the API listens on `API_PORT` defaulting to `4050`, Next.js listens on Render's `$PORT`, and Next proxies `/api/*` to the internal API.
+If you intentionally deploy both apps into one Render web service, use `npm run start:all`. In that mode the command builds both apps, the API listens on `API_PORT` defaulting to `5050`, Next.js listens on Render's `$PORT`, and Next proxies `/api/*` to the internal API.

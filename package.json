@@ -12,7 +12,8 @@
     "start:api": "npm run start --workspace apps/api",
     "start:web": "npm run start --workspace apps/web",
     "start": "npm run start:web",
-    "start:all": "concurrently \"API_PORT=${API_PORT:-5050} npm run start --workspace apps/api\" \"npm run start --workspace apps/web\""
+    "serve:all": "concurrently \"API_PORT=${API_PORT:-5050} npm run start --workspace apps/api\" \"npm run start --workspace apps/web\"",
+    "start:all": "npm run build && npm run serve:all"
 
   },
   "devDependencies": {

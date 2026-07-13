@@ -1,5 +1,24 @@
 services:
   - type: web
+    name: eretail-combined
+    runtime: node
+    rootDir: .
+    buildCommand: npm ci --include=dev
+    startCommand: npm run start:all
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NPM_CONFIG_PRODUCTION
+        value: "false"
+      - key: JWT_SECRET
+        sync: false
+      - key: MONGODB_URI
+        sync: false
+      - key: API_PORT
+        value: "5050"
+
+  - type: web
     name: eretail-api
     runtime: node
     rootDir: .
