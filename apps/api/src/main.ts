@@ -22,9 +22,8 @@ async function bootstrap() {
   });
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true, forbidNonWhitelisted: true }));
   app.setGlobalPrefix('api');
-<<<<<<< HEAD
 
-  const port = process.env.API_PORT ? Number(process.env.API_PORT) : process.env.PORT ? Number(process.env.PORT) : 5050;
+  const port = process.env.API_PORT ? Number(process.env.API_PORT) : process.env.PORT ? Number(process.env.PORT) : 4050;
   try {
     await app.listen(port);
     console.log(`Nest application is listening on port ${port}`);
@@ -36,9 +35,6 @@ async function bootstrap() {
     }
     process.exit(1);
   }
-=======
-  await app.listen(process.env.PORT ? Number(process.env.PORT) : 4050);
->>>>>>> parent of ed470d0 (Fix API startup on EADDRINUSE by handling port bind errors gracefully)
 }
 
 bootstrap();
