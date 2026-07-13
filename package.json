@@ -11,7 +11,8 @@
     "lint": "npm run lint --workspace apps/web",
     "start:api": "npm run start --workspace apps/api",
     "start:web": "npm run start --workspace apps/web",
-    "start": "concurrently \"npm run start --workspace apps/api\" \"npm run start --workspace apps/web\""
+    "start": "npm run start:web",
+    "start:all": "concurrently \"npm run start --workspace apps/api\" \"npm run start --workspace apps/web\""
 
   },
   "devDependencies": {

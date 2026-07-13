@@ -5,6 +5,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { AuthModule } from './auth/auth.module';
 import { DatabaseModule } from './common/database.module';
 import { DashboardModule } from './dashboard/dashboard.module';
+import { HealthModule } from './health/health.module';
 import { InventoryModule } from './inventory/inventory.module';
 import { OperationsModule } from './operations/operations.module';
 import { OrdersModule } from './orders/orders.module';
@@ -15,6 +16,7 @@ import { OrdersModule } from './orders/orders.module';
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 120 }]),
     DatabaseModule,
     AuthModule,
+    HealthModule,
     DashboardModule,
     OrdersModule,
     InventoryModule,
