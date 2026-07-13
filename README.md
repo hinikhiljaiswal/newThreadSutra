@@ -35,7 +35,7 @@ docker compose up -d mongo
 
 ## Render deployment
 
-Do not run the root `npm run start:all` command on a single Render web service. Render assigns one `$PORT` per web service, so starting Next.js and NestJS in the same service causes `EADDRINUSE`.
+The preferred Render setup is two web services. Render assigns one `$PORT` per web service, so running both Next.js and NestJS on the same `$PORT` causes `EADDRINUSE`.
 
 Use the included `render.yaml` Blueprint, or create two Render web services manually:
 
@@ -43,3 +43,5 @@ Use the included `render.yaml` Blueprint, or create two Render web services manu
 - Web service: build `npm ci && npm run build --workspace apps/web`, start `npm run start:web`
 
 Set the API service env vars `JWT_SECRET`, `MONGODB_URI`, and `WEB_ORIGIN` or `WEB_ORIGIN_HOST`. Set the web service env var `NEXT_PUBLIC_API_URL` or `NEXT_PUBLIC_API_HOST`.
+
+If you intentionally deploy both apps into one Render web service, use `npm run start:all`. In that mode the API listens on `API_PORT` defaulting to `4050`, Next.js listens on Render's `$PORT`, and Next proxies `/api/*` to the internal API.
