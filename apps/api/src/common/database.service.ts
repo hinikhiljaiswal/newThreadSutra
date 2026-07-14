@@ -1,8 +1,8 @@
 import { Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Model, connect, model, models } from 'mongoose';
-import { importJobs, inventory, masterData, operationRecords, orders, procurementDocs, reportRuns, returnCases } from './data';
-import { importJobSchema, inventorySchema, masterDataSchema, operationSchema, orderSchema, procurementDocSchema, reportRunSchema, returnCaseSchema } from './schemas';
+import { adminRecords, importJobs, inventory, inventoryTasks, logisticsDocs, masterData, operationRecords, orders, procurementDocs, reportRuns, returnCases } from './data';
+import { adminRecordSchema, importJobSchema, inventorySchema, inventoryTaskSchema, logisticsDocSchema, masterDataSchema, operationSchema, orderSchema, procurementDocSchema, reportRunSchema, returnCaseSchema } from './schemas';
 
 export type OrderStatus = 'Pending Pick' | 'Allocated' | 'Packed' | 'Ready to Ship' | 'Shipped' | 'Cancelled' | 'Exception';
 export type Order = (typeof orders)[number] & { createdAt?: Date; updatedAt?: Date };
@@ -29,6 +29,15 @@ export type UpdateMasterDataInput = Partial<Omit<MasterDataRecord, 'id' | 'type'
 export type ProcurementDoc = (typeof procurementDocs)[number] & { createdAt?: Date; updatedAt?: Date };
 export type CreateProcurementDocInput = Omit<ProcurementDoc, 'id' | 'status' | 'value' | 'asnNo' | 'receivedQty' | 'createdAt' | 'updatedAt'> & { id?: string; status?: string; value?: number; asnNo?: string; receivedQty?: number };
 export type UpdateProcurementDocInput = Partial<Omit<ProcurementDoc, 'id' | 'type' | 'documentNo' | 'createdAt' | 'updatedAt'>>;
+export type AdminRecord = (typeof adminRecords)[number] & { createdAt?: Date; updatedAt?: Date };
+export type CreateAdminRecordInput = Omit<AdminRecord, 'id' | 'status' | 'severity' | 'createdAt' | 'updatedAt'> & { id?: string; status?: string; severity?: string };
+export type UpdateAdminRecordInput = Partial<Omit<AdminRecord, 'id' | 'type' | 'code' | 'createdAt' | 'updatedAt'>>;
+export type LogisticsDoc = (typeof logisticsDocs)[number] & { createdAt?: Date; updatedAt?: Date };
+export type CreateLogisticsDocInput = Omit<LogisticsDoc, 'id' | 'status' | 'packages' | 'weight' | 'createdAt' | 'updatedAt'> & { id?: string; status?: string; packages?: number; weight?: number };
+export type UpdateLogisticsDocInput = Partial<Omit<LogisticsDoc, 'id' | 'type' | 'shipmentNo' | 'createdAt' | 'updatedAt'>>;
+export type InventoryTask = (typeof inventoryTasks)[number] & { createdAt?: Date; updatedAt?: Date };
+export type CreateInventoryTaskInput = Omit<InventoryTask, 'id' | 'status' | 'quantity' | 'createdAt' | 'updatedAt'> & { id?: string; status?: string; quantity?: number };
+export type UpdateInventoryTaskInput = Partial<Omit<InventoryTask, 'id' | 'type' | 'sku' | 'createdAt' | 'updatedAt'>>;
 
 @Injectable()
 export class DatabaseService implements OnModuleInit {
@@ -41,6 +50,9 @@ export class DatabaseService implements OnModuleInit {
   private returnCaseModel?: Model<ReturnCase>;
   private masterDataModel?: Model<MasterDataRecord>;
   private procurementDocModel?: Model<ProcurementDoc>;
+  private adminRecordModel?: Model<AdminRecord>;
+  private logisticsDocModel?: Model<LogisticsDoc>;
+  private inventoryTaskModel?: Model<InventoryTask>;
   private ready = false;
   private memoryOrders: Order[] = orders.map((order) => ({ ...order }));
   private memoryInventory: InventoryItem[] = inventory.map((item) => ({ ...item }));
@@ -50,6 +62,9 @@ export class DatabaseService implements OnModuleInit {
   private memoryReturnCases: ReturnCase[] = returnCases.map((item) => ({ ...item }));
   private memoryMasterData: MasterDataRecord[] = masterData.map((item) => ({ ...item }));
   private memoryProcurementDocs: ProcurementDoc[] = procurementDocs.map((item) => ({ ...item }));
+  private memoryAdminRecords: AdminRecord[] = adminRecords.map((item) => ({ ...item }));
+  private memoryLogisticsDocs: LogisticsDoc[] = logisticsDocs.map((item) => ({ ...item }));
+  private memoryInventoryTasks: InventoryTask[] = inventoryTasks.map((item) => ({ ...item }));
 
   constructor(private readonly config: ConfigService) {}
 
@@ -70,6 +85,9 @@ export class DatabaseService implements OnModuleInit {
       this.returnCaseModel = (models.ReturnCase as Model<ReturnCase>) ?? model<ReturnCase>('ReturnCase', returnCaseSchema);
       this.masterDataModel = (models.MasterDataRecord as Model<MasterDataRecord>) ?? model<MasterDataRecord>('MasterDataRecord', masterDataSchema);
       this.procurementDocModel = (models.ProcurementDoc as Model<ProcurementDoc>) ?? model<ProcurementDoc>('ProcurementDoc', procurementDocSchema);
+      this.adminRecordModel = (models.AdminRecord as Model<AdminRecord>) ?? model<AdminRecord>('AdminRecord', adminRecordSchema);
+      this.logisticsDocModel = (models.LogisticsDoc as Model<LogisticsDoc>) ?? model<LogisticsDoc>('LogisticsDoc', logisticsDocSchema);
+      this.inventoryTaskModel = (models.InventoryTask as Model<InventoryTask>) ?? model<InventoryTask>('InventoryTask', inventoryTaskSchema);
       await this.seed();
       this.ready = true;
       this.logger.log('MongoDB connected, indexed, and seeded.');
@@ -398,9 +416,109 @@ export class DatabaseService implements OnModuleInit {
     return item;
   }
 
+  async getAdminRecords(type?: string) {
+    if (!this.ready || !this.adminRecordModel) return type ? this.memoryAdminRecords.filter((item) => item.type === type) : this.memoryAdminRecords;
+    const query = type ? { type } : {};
+    return this.adminRecordModel.find(query).sort({ createdAt: -1, id: -1 }).lean();
+  }
+
+  async createAdminRecord(input: CreateAdminRecordInput) {
+    const prefix = input.type.toUpperCase().includes('USER') ? 'USR' : input.type.toUpperCase().includes('AUDIT') ? 'AUD' : input.type.toUpperCase().includes('API') ? 'API' : 'LOG';
+    const item = {
+      ...input,
+      id: input.id || `${prefix}-${Date.now().toString().slice(-6)}`,
+      status: input.status || 'Active',
+      severity: input.severity || 'Info',
+    };
+    if (!this.ready || !this.adminRecordModel) {
+      this.memoryAdminRecords = [item, ...this.memoryAdminRecords];
+      return item;
+    }
+    return this.adminRecordModel.create(item);
+  }
+
+  async updateAdminRecord(id: string, input: UpdateAdminRecordInput) {
+    if (!this.ready || !this.adminRecordModel) {
+      const index = this.memoryAdminRecords.findIndex((item) => item.id === id);
+      if (index < 0) throw new NotFoundException(`Admin record ${id} not found`);
+      this.memoryAdminRecords[index] = { ...this.memoryAdminRecords[index], ...input };
+      return this.memoryAdminRecords[index];
+    }
+    const item = await this.adminRecordModel.findOneAndUpdate({ id }, input, { new: true }).lean();
+    if (!item) throw new NotFoundException(`Admin record ${id} not found`);
+    return item;
+  }
+
+  async getLogisticsDocs(type?: string) {
+    if (!this.ready || !this.logisticsDocModel) return type ? this.memoryLogisticsDocs.filter((item) => item.type === type) : this.memoryLogisticsDocs;
+    const query = type ? { type } : {};
+    return this.logisticsDocModel.find(query).sort({ createdAt: -1, shipmentNo: 1 }).lean();
+  }
+
+  async createLogisticsDoc(input: CreateLogisticsDocInput) {
+    const prefix = input.type.toUpperCase().includes('PIN') ? 'PIN' : input.type.toUpperCase().includes('TRANSPORTER') ? 'TRP' : input.type.toUpperCase().includes('HANDOVER') ? 'HAND' : input.type.toUpperCase().includes('SHIPPING') ? 'SHIP' : 'AWB';
+    const item = {
+      ...input,
+      id: input.id || `${prefix}-${Date.now().toString().slice(-6)}`,
+      status: input.status || 'Ready to Ship',
+      packages: Number(input.packages || 0),
+      weight: Number(input.weight || 0),
+    };
+    if (!this.ready || !this.logisticsDocModel) {
+      this.memoryLogisticsDocs = [item, ...this.memoryLogisticsDocs];
+      return item;
+    }
+    return this.logisticsDocModel.create(item);
+  }
+
+  async updateLogisticsDoc(id: string, input: UpdateLogisticsDocInput) {
+    if (!this.ready || !this.logisticsDocModel) {
+      const index = this.memoryLogisticsDocs.findIndex((item) => item.id === id);
+      if (index < 0) throw new NotFoundException(`Logistics document ${id} not found`);
+      this.memoryLogisticsDocs[index] = { ...this.memoryLogisticsDocs[index], ...input };
+      return this.memoryLogisticsDocs[index];
+    }
+    const item = await this.logisticsDocModel.findOneAndUpdate({ id }, input, { new: true }).lean();
+    if (!item) throw new NotFoundException(`Logistics document ${id} not found`);
+    return item;
+  }
+
+  async getInventoryTasks(type?: string) {
+    if (!this.ready || !this.inventoryTaskModel) return type ? this.memoryInventoryTasks.filter((item) => item.type === type) : this.memoryInventoryTasks;
+    const query = type ? { type } : {};
+    return this.inventoryTaskModel.find(query).sort({ createdAt: -1, id: -1 }).lean();
+  }
+
+  async createInventoryTask(input: CreateInventoryTaskInput) {
+    const prefix = input.type.toUpperCase().includes('COUNT') ? 'CNT' : input.type.toUpperCase().includes('HOLD') ? 'HLD' : input.type.toUpperCase().includes('RESERVATION') ? 'RES' : input.type.toUpperCase().includes('TRANSACTION') ? 'TXN' : 'MOV';
+    const item = {
+      ...input,
+      id: input.id || `${prefix}-${Date.now().toString().slice(-6)}`,
+      status: input.status || 'Open',
+      quantity: Number(input.quantity || 0),
+    };
+    if (!this.ready || !this.inventoryTaskModel) {
+      this.memoryInventoryTasks = [item, ...this.memoryInventoryTasks];
+      return item;
+    }
+    return this.inventoryTaskModel.create(item);
+  }
+
+  async updateInventoryTask(id: string, input: UpdateInventoryTaskInput) {
+    if (!this.ready || !this.inventoryTaskModel) {
+      const index = this.memoryInventoryTasks.findIndex((item) => item.id === id);
+      if (index < 0) throw new NotFoundException(`Inventory task ${id} not found`);
+      this.memoryInventoryTasks[index] = { ...this.memoryInventoryTasks[index], ...input };
+      return this.memoryInventoryTasks[index];
+    }
+    const item = await this.inventoryTaskModel.findOneAndUpdate({ id }, input, { new: true }).lean();
+    if (!item) throw new NotFoundException(`Inventory task ${id} not found`);
+    return item;
+  }
+
   private async seed() {
-    if (!this.orderModel || !this.inventoryModel || !this.operationModel || !this.importJobModel || !this.reportRunModel || !this.returnCaseModel || !this.masterDataModel || !this.procurementDocModel) return;
-    await Promise.all([this.orderModel.syncIndexes(), this.inventoryModel.syncIndexes(), this.operationModel.syncIndexes(), this.importJobModel.syncIndexes(), this.reportRunModel.syncIndexes(), this.returnCaseModel.syncIndexes(), this.masterDataModel.syncIndexes(), this.procurementDocModel.syncIndexes()]);
+    if (!this.orderModel || !this.inventoryModel || !this.operationModel || !this.importJobModel || !this.reportRunModel || !this.returnCaseModel || !this.masterDataModel || !this.procurementDocModel || !this.adminRecordModel || !this.logisticsDocModel || !this.inventoryTaskModel) return;
+    await Promise.all([this.orderModel.syncIndexes(), this.inventoryModel.syncIndexes(), this.operationModel.syncIndexes(), this.importJobModel.syncIndexes(), this.reportRunModel.syncIndexes(), this.returnCaseModel.syncIndexes(), this.masterDataModel.syncIndexes(), this.procurementDocModel.syncIndexes(), this.adminRecordModel.syncIndexes(), this.logisticsDocModel.syncIndexes(), this.inventoryTaskModel.syncIndexes()]);
     await Promise.all(orders.map((order) => this.orderModel!.updateOne({ id: order.id }, { $setOnInsert: order }, { upsert: true })));
     await Promise.all(inventory.map((item) => this.inventoryModel!.updateOne({ sku: item.sku }, { $setOnInsert: item }, { upsert: true })));
     await Promise.all(operationRecords.map((record) => this.operationModel!.updateOne({ id: record.id }, { $setOnInsert: record }, { upsert: true })));
@@ -409,5 +527,8 @@ export class DatabaseService implements OnModuleInit {
     await Promise.all(returnCases.map((item) => this.returnCaseModel!.updateOne({ id: item.id }, { $setOnInsert: item }, { upsert: true })));
     await Promise.all(masterData.map((item) => this.masterDataModel!.updateOne({ id: item.id }, { $setOnInsert: item }, { upsert: true })));
     await Promise.all(procurementDocs.map((item) => this.procurementDocModel!.updateOne({ id: item.id }, { $setOnInsert: item }, { upsert: true })));
+    await Promise.all(adminRecords.map((item) => this.adminRecordModel!.updateOne({ id: item.id }, { $setOnInsert: item }, { upsert: true })));
+    await Promise.all(logisticsDocs.map((item) => this.logisticsDocModel!.updateOne({ id: item.id }, { $setOnInsert: item }, { upsert: true })));
+    await Promise.all(inventoryTasks.map((item) => this.inventoryTaskModel!.updateOne({ id: item.id }, { $setOnInsert: item }, { upsert: true })));
   }
 }

@@ -22,7 +22,7 @@ import {
   User,
   Warehouse,
 } from 'lucide-react';
-import { api, ImportJob, InventoryItem, MasterDataRecord, Metric, OperationRecord, Order, ProcurementDoc, ReportRun, ReturnCase } from '@/lib/api';
+import { AdminRecord, api, ImportJob, InventoryItem, InventoryTask, LogisticsDoc, MasterDataRecord, Metric, OperationRecord, Order, ProcurementDoc, ReportRun, ReturnCase } from '@/lib/api';
 
 type Session = { displayName: string; role: string; organization: string; username: string };
 type ModuleKey = 'dashboard' | 'master' | 'procurement' | 'sales' | 'wms' | 'returns' | 'inventory' | 'warehouse' | 'shipping' | 'reports' | 'admin';
@@ -634,6 +634,9 @@ function OpenedScreen({ screen, orders, inventory, onRefresh, setMessage }: { sc
   const title = screen.title;
   const lower = title.toLowerCase();
 
+  if (['awb', 'transporter preference', 'service pin', 'delivery shipping', 'shipment handover'].some((term) => lower.includes(term))) {
+    return <LogisticsOperationScreen title={title} orders={orders} setMessage={setMessage} />;
+  }
   if (screen.module === 'wms' && ['allocate', 'unallocate', 'pick', 'pack', 'ship', 'handover', 'acknowledgement', 'sort to box', 'bulk order'].some((term) => lower.includes(term))) {
     return <FulfillmentWorkbench title={title} orders={orders} onRefresh={onRefresh} setMessage={setMessage} />;
   }
@@ -656,7 +659,7 @@ function OpenedScreen({ screen, orders, inventory, onRefresh, setMessage }: { sc
     return <ReturnOperationScreen title={title} orders={orders} setMessage={setMessage} />;
   }
   if (lower.includes('user') || lower.includes('api') || lower.includes('log') || lower.includes('setting')) {
-    return <AdminOperationScreen title={title} />;
+    return <AdminOperationScreen title={title} setMessage={setMessage} />;
   }
   if (lower.includes('report') || lower.includes('register') || lower.includes('invoice') || lower.includes('manifest')) {
     return <ReportOperationScreen title={title} orders={orders} inventory={inventory} setMessage={setMessage} />;
@@ -1007,9 +1010,137 @@ function SkuScreen({ title, inventory, onRefresh, setMessage }: { title: string;
 }
 
 function InventoryOperationScreen({ title, inventory, onRefresh, setMessage }: { title: string; inventory: InventoryItem[]; onRefresh: () => Promise<void>; setMessage: (message: string) => void }) {
+  const firstItem = inventory[0];
+  const [tasks, setTasks] = useState<InventoryTask[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [filter, setFilter] = useState('');
+  const [form, setForm] = useState({
+    sku: firstItem?.sku ?? 'TS-NEW',
+    name: firstItem?.name ?? 'New SKU',
+    fromLocation: firstItem?.location ?? 'A-01-01',
+    toLocation: 'B-01-01',
+    status: title.toLowerCase().includes('count') ? 'Count Pending' : title.toLowerCase().includes('hold') ? 'Held' : title.toLowerCase().includes('reservation') ? 'Reserved' : 'Open',
+    quantity: 1,
+    reason: title,
+    owner: 'Warehouse',
+  });
+  const rows = tasks.filter((task) => [task.id, task.sku, task.name, task.fromLocation, task.toLocation, task.status, task.reason, task.owner].join(' ').toLowerCase().includes(filter.toLowerCase()));
+  const open = tasks.filter((task) => ['Open', 'Count Pending', 'Held', 'Reserved'].includes(task.status)).length;
+  const completed = tasks.filter((task) => ['Completed', 'Posted', 'Released'].includes(task.status)).length;
+  const totalQty = tasks.reduce((sum, task) => sum + task.quantity, 0);
+
+  useEffect(() => {
+    void load();
+  }, [title]);
+
+  async function load() {
+    setBusy(true);
+    try {
+      const exact = await api.inventoryTasks({ type: title });
+      const all = exact.length ? exact : await api.inventoryTasks();
+      setTasks(all.filter((task) => task.type === title || !exact.length));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function useSku(sku: string) {
+    const item = inventory.find((entry) => entry.sku === sku);
+    if (!item) return;
+    setForm({ ...form, sku: item.sku, name: item.name, fromLocation: item.location, quantity: Math.max(1, Math.min(item.available, 10)) });
+  }
+
+  async function createTask(event: React.FormEvent) {
+    event.preventDefault();
+    const task = await api.createInventoryTask({ type: title, ...form, quantity: Number(form.quantity || 0) });
+    setMessage(`${task.id} saved`);
+    await load();
+  }
+
+  async function transition(task: InventoryTask, status: string) {
+    await api.updateInventoryTask(task.id, { status });
+    setMessage(`${task.id} moved to ${status}`);
+    await load();
+  }
+
+  function exportRows() {
+    const header = ['Task', 'Type', 'SKU', 'Name', 'From', 'To', 'Status', 'Quantity', 'Reason', 'Owner'];
+    const csv = [header, ...rows.map((task) => [task.id, task.type, task.sku, task.name, task.fromLocation, task.toLocation, task.status, task.quantity, task.reason, task.owner])]
+      .map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(','))
+      .join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${title.replaceAll(' ', '_')}_inventory.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
   return (
-    <ScreenShell title={title}>
+    <ScreenShell title={title} actions={<button onClick={exportRows} className="rounded-sm bg-[#00a65a] px-3 py-1 text-xs font-bold text-white">Export CSV</button>}>
       <SearchForm fields={['Location', 'Zone', 'Bin', 'SKU Code', 'LPN No', 'Lot No', 'Inventory Status']} />
+      <div className="grid gap-3 xl:grid-cols-[360px_1fr]">
+        <Panel title="Create Inventory Task">
+          <form onSubmit={createTask} className="space-y-3">
+            <Select label="SKU" value={form.sku} options={[...new Set([form.sku, ...inventory.map((item) => item.sku)])]} onChange={useSku} />
+            <Input label="Name" value={form.name} onChange={(name) => setForm({ ...form, name })} />
+            <div className="grid grid-cols-2 gap-3">
+              <Input label="From Location" value={form.fromLocation} onChange={(fromLocation) => setForm({ ...form, fromLocation })} />
+              <Input label="To Location" value={form.toLocation} onChange={(toLocation) => setForm({ ...form, toLocation })} />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <Select label="Status" value={form.status} options={['Open', 'Count Pending', 'Held', 'Reserved', 'Completed', 'Posted', 'Released', 'Cancelled']} onChange={(status) => setForm({ ...form, status })} />
+              <NumberInput label="Quantity" value={form.quantity} onChange={(quantity) => setForm({ ...form, quantity })} />
+            </div>
+            <Input label="Reason" value={form.reason} onChange={(reason) => setForm({ ...form, reason })} />
+            <Input label="Owner" value={form.owner} onChange={(owner) => setForm({ ...form, owner })} />
+            <button className="h-9 w-full rounded-sm bg-[#ff9800] text-xs font-bold text-white">Save Task</button>
+          </form>
+        </Panel>
+        <div>
+          <div className="mb-3 grid gap-2 md:grid-cols-4">
+            <ReportCard label="Tasks" value={tasks.length.toString()} />
+            <ReportCard label="Open Work" value={open.toString()} />
+            <ReportCard label="Completed" value={completed.toString()} />
+            <ReportCard label="Quantity" value={totalQty.toString()} />
+          </div>
+          <div className="mb-2 flex items-center justify-between gap-2 border border-[#d5e3ef] bg-[#fbfdff] px-3 py-2">
+            <span className="text-xs font-bold text-[#555]">{rows.length} task(s)</span>
+            <input value={filter} onChange={(event) => setFilter(event.target.value)} className="h-8 w-64 border border-[#bfc4c8] px-2 text-xs outline-none focus:border-[#3c8dbc]" placeholder="Filter SKU, bin, status" />
+          </div>
+          <div className="overflow-x-auto">
+            <table className="vin-grid w-full min-w-[1060px] border-collapse text-sm">
+              <thead className="text-left text-xs uppercase">
+                <tr>{['Task', 'SKU', 'Name', 'From', 'To', 'Status', 'Qty', 'Reason', 'Owner', 'Action'].map((head) => <th key={head} className="px-3 py-2">{head}</th>)}</tr>
+              </thead>
+              <tbody>
+                {rows.map((task) => (
+                  <tr key={task.id}>
+                    <td className="px-3 py-3 font-bold text-[#006bb6]">{task.id}</td>
+                    <td className="px-3 py-3">{task.sku}</td>
+                    <td className="px-3 py-3">{task.name}</td>
+                    <td className="px-3 py-3">{task.fromLocation}</td>
+                    <td className="px-3 py-3">{task.toLocation}</td>
+                    <td className="px-3 py-3"><Status value={task.status} /></td>
+                    <td className="px-3 py-3">{task.quantity}</td>
+                    <td className="px-3 py-3">{task.reason}</td>
+                    <td className="px-3 py-3">{task.owner}</td>
+                    <td className="px-3 py-3">
+                      <div className="flex flex-wrap gap-2">
+                        <button onClick={() => transition(task, 'Completed')} className="rounded-sm bg-[#00a65a] px-2 py-1 text-xs text-white">Complete</button>
+                        <button onClick={() => transition(task, task.status === 'Held' ? 'Released' : 'Held')} className="rounded-sm bg-[#3c8dbc] px-2 py-1 text-xs text-white">{task.status === 'Held' ? 'Release' : 'Hold'}</button>
+                        <button onClick={() => transition(task, 'Posted')} className="rounded-sm border border-[#a6c9e2] px-2 py-1 text-xs text-[#006bb6]">Post</button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {!rows.length ? <tr><td colSpan={10} className="px-3 py-8 text-center text-[#777]">{busy ? 'Loading...' : 'No inventory tasks found'}</td></tr> : null}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
       <InventoryModule inventory={inventory} query="" onRefresh={onRefresh} setMessage={setMessage} />
       <OperationGrid module="wms" type={title} />
     </ScreenShell>
@@ -1303,11 +1434,287 @@ function MasterDataScreen({ title, setMessage }: { title: string; setMessage: (m
   );
 }
 
-function AdminOperationScreen({ title }: { title: string }) {
+function AdminOperationScreen({ title, setMessage }: { title: string; setMessage: (message: string) => void }) {
+  const lower = title.toLowerCase();
+  const isUser = lower.includes('user') && !lower.includes('audit');
+  const [records, setRecords] = useState<AdminRecord[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [filter, setFilter] = useState('');
+  const [form, setForm] = useState({
+    code: isUser ? 'USR-NEW' : lower.includes('api') ? 'API-NEW' : 'LOG-NEW',
+    name: isUser ? 'New User' : `${title} entry`,
+    role: isUser ? 'Operator' : lower.includes('api') ? 'Connector' : 'Audit',
+    status: isUser ? 'Active' : 'Success',
+    location: isUser ? 'JX Karawaci' : 'API',
+    channel: lower.includes('pos') ? 'POS' : lower.includes('tax') ? 'Tax API' : lower.includes('api') ? 'Marketplace' : 'Web',
+    lastEvent: isUser ? 'User created' : 'Event captured',
+    severity: 'Info',
+    owner: isUser ? 'Admin' : 'System',
+  });
+  const rows = records.filter((record) => [record.id, record.code, record.name, record.role, record.status, record.location, record.channel, record.lastEvent, record.severity, record.owner].join(' ').toLowerCase().includes(filter.toLowerCase()));
+  const active = records.filter((record) => record.status === 'Active' || record.status === 'Success').length;
+  const warnings = records.filter((record) => record.severity === 'Warning').length;
+  const errors = records.filter((record) => record.severity === 'Error' || record.status === 'Failed').length;
+
+  useEffect(() => {
+    void load();
+  }, [title]);
+
+  async function load() {
+    setBusy(true);
+    try {
+      const exact = await api.adminRecords({ type: title });
+      const all = exact.length ? exact : await api.adminRecords();
+      setRecords(all.filter((record) => record.type === title || !exact.length));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function createRecord(event: React.FormEvent) {
+    event.preventDefault();
+    const record = await api.createAdminRecord({ type: title, ...form });
+    setMessage(`${record.code} saved`);
+    setForm({ ...form, code: form.code.includes('NEW') ? form.code : `${form.code}-COPY`, name: isUser ? 'New User' : `${title} entry` });
+    await load();
+  }
+
+  async function transition(record: AdminRecord, status: string, severity = record.severity) {
+    await api.updateAdminRecord(record.id, { status, severity, lastEvent: `${status} applied` });
+    setMessage(`${record.code} marked ${status}`);
+    await load();
+  }
+
+  function exportRows() {
+    const header = ['ID', 'Type', 'Code', 'Name', 'Role', 'Status', 'Location', 'Channel', 'Last Event', 'Severity', 'Owner'];
+    const csv = [header, ...rows.map((record) => [record.id, record.type, record.code, record.name, record.role, record.status, record.location, record.channel, record.lastEvent, record.severity, record.owner])]
+      .map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(','))
+      .join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${title.replaceAll(' ', '_')}_admin.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
   return (
-    <ScreenShell title={title}>
-      <SearchForm fields={['User Id', 'User Name', 'Role', 'Location', 'Status', 'From Date', 'To Date']} />
+    <ScreenShell title={title} actions={<button onClick={exportRows} className="rounded-sm bg-[#00a65a] px-3 py-1 text-xs font-bold text-white">Export CSV</button>}>
+      <SearchForm fields={isUser ? ['User Id', 'User Name', 'Role', 'Location', 'Status', 'From Date', 'To Date'] : ['Code', 'Channel', 'Severity', 'Status', 'From Date', 'To Date']} />
+      <div className="grid gap-3 xl:grid-cols-[360px_1fr]">
+        <Panel title={isUser ? 'Create / Maintain User' : 'Capture Admin Event'}>
+          <form onSubmit={createRecord} className="space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <Input label="Code" value={form.code} onChange={(code) => setForm({ ...form, code })} />
+              <Select label="Status" value={form.status} options={['Active', 'Inactive', 'Locked', 'Success', 'Warning', 'Failed']} onChange={(status) => setForm({ ...form, status })} />
+            </div>
+            <Input label={isUser ? 'User Name' : 'Name'} value={form.name} onChange={(name) => setForm({ ...form, name })} />
+            <div className="grid grid-cols-2 gap-3">
+              <Input label="Role" value={form.role} onChange={(role) => setForm({ ...form, role })} />
+              <Input label="Location" value={form.location} onChange={(location) => setForm({ ...form, location })} />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <Input label="Channel" value={form.channel} onChange={(channel) => setForm({ ...form, channel })} />
+              <Select label="Severity" value={form.severity} options={['Info', 'Warning', 'Error']} onChange={(severity) => setForm({ ...form, severity })} />
+            </div>
+            <Input label="Last Event" value={form.lastEvent} onChange={(lastEvent) => setForm({ ...form, lastEvent })} />
+            <Input label="Owner" value={form.owner} onChange={(owner) => setForm({ ...form, owner })} />
+            <button className="h-9 w-full rounded-sm bg-[#ff9800] text-xs font-bold text-white">Save Record</button>
+          </form>
+        </Panel>
+        <div>
+          <div className="mb-3 grid gap-2 md:grid-cols-4">
+            <ReportCard label="Records" value={records.length.toString()} />
+            <ReportCard label="Active / Success" value={active.toString()} />
+            <ReportCard label="Warnings" value={warnings.toString()} />
+            <ReportCard label="Errors" value={errors.toString()} />
+          </div>
+          <div className="mb-2 flex items-center justify-between gap-2 border border-[#d5e3ef] bg-[#fbfdff] px-3 py-2">
+            <span className="text-xs font-bold text-[#555]">{rows.length} record(s)</span>
+            <input value={filter} onChange={(event) => setFilter(event.target.value)} className="h-8 w-64 border border-[#bfc4c8] px-2 text-xs outline-none focus:border-[#3c8dbc]" placeholder="Filter users, logs, events" />
+          </div>
+          <div className="overflow-x-auto">
+            <table className="vin-grid w-full min-w-[1120px] border-collapse text-sm">
+              <thead className="text-left text-xs uppercase">
+                <tr>{['Code', 'Name', 'Role', 'Status', 'Location', 'Channel', 'Severity', 'Owner', 'Last Event', 'Action'].map((head) => <th key={head} className="px-3 py-2">{head}</th>)}</tr>
+              </thead>
+              <tbody>
+                {rows.map((record) => (
+                  <tr key={record.id}>
+                    <td className="px-3 py-3 font-bold text-[#006bb6]">{record.code}</td>
+                    <td className="px-3 py-3">{record.name}</td>
+                    <td className="px-3 py-3">{record.role}</td>
+                    <td className="px-3 py-3"><Status value={record.status} /></td>
+                    <td className="px-3 py-3">{record.location}</td>
+                    <td className="px-3 py-3">{record.channel}</td>
+                    <td className="px-3 py-3">{record.severity}</td>
+                    <td className="px-3 py-3">{record.owner}</td>
+                    <td className="px-3 py-3">{record.lastEvent}</td>
+                    <td className="px-3 py-3">
+                      <div className="flex flex-wrap gap-2">
+                        <button onClick={() => transition(record, isUser ? 'Active' : 'Success', 'Info')} className="rounded-sm bg-[#00a65a] px-2 py-1 text-xs text-white">{isUser ? 'Active' : 'Success'}</button>
+                        <button onClick={() => transition(record, isUser ? 'Locked' : 'Warning', 'Warning')} className="rounded-sm bg-[#3c8dbc] px-2 py-1 text-xs text-white">{isUser ? 'Lock' : 'Warn'}</button>
+                        <button onClick={() => transition(record, isUser ? 'Inactive' : 'Failed', 'Error')} className="rounded-sm bg-[#dd4b39] px-2 py-1 text-xs text-white">{isUser ? 'Inactive' : 'Fail'}</button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {!rows.length ? <tr><td colSpan={10} className="px-3 py-8 text-center text-[#777]">{busy ? 'Loading...' : 'No admin records found'}</td></tr> : null}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
       <OperationGrid module="admin" type={title} />
+    </ScreenShell>
+  );
+}
+
+function LogisticsOperationScreen({ title, orders, setMessage }: { title: string; orders: Order[]; setMessage: (message: string) => void }) {
+  const lower = title.toLowerCase();
+  const firstOrder = orders[0];
+  const [docs, setDocs] = useState<LogisticsDoc[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [filter, setFilter] = useState('');
+  const [form, setForm] = useState({
+    shipmentNo: lower.includes('pin') ? 'PIN-NEW' : lower.includes('transporter') ? 'TRP-NEW' : lower.includes('handover') ? 'HAND-NEW' : lower.includes('shipping') ? 'SHIP-NEW' : 'AWB-NEW',
+    orderId: firstOrder?.id ?? 'SO-NEW',
+    carrier: lower.includes('transporter') ? 'BlueDart Express' : 'Delhivery',
+    service: lower.includes('pin') ? 'COD Enabled' : lower.includes('handover') ? 'Manifest' : 'Express',
+    status: lower.includes('pin') || lower.includes('transporter') ? 'Active' : 'Ready to Ship',
+    origin: lower.includes('pin') ? 'JX Karawaci' : 'Shipping Dock',
+    destination: firstOrder?.city ?? 'Delhi',
+    packages: firstOrder ? Math.max(1, Math.ceil(firstOrder.items / 4)) : 1,
+    weight: firstOrder ? Math.max(1, firstOrder.items * 2) : 1,
+    owner: 'Logistics',
+  });
+  const rows = docs.filter((doc) => [doc.id, doc.shipmentNo, doc.orderId, doc.carrier, doc.service, doc.status, doc.origin, doc.destination, doc.owner].join(' ').toLowerCase().includes(filter.toLowerCase()));
+  const active = docs.filter((doc) => ['Active', 'Ready to Ship', 'Manifested', 'Packed'].includes(doc.status)).length;
+  const totalPackages = docs.reduce((sum, doc) => sum + doc.packages, 0);
+  const totalWeight = docs.reduce((sum, doc) => sum + doc.weight, 0);
+
+  useEffect(() => {
+    void load();
+  }, [title]);
+
+  async function load() {
+    setBusy(true);
+    try {
+      const exact = await api.logistics({ type: title });
+      const all = exact.length ? exact : await api.logistics();
+      setDocs(all.filter((doc) => doc.type === title || !exact.length));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function createDoc(event: React.FormEvent) {
+    event.preventDefault();
+    const doc = await api.createLogistics({ type: title, ...form, packages: Number(form.packages || 0), weight: Number(form.weight || 0) });
+    setMessage(`${doc.shipmentNo} saved`);
+    setForm({ ...form, shipmentNo: form.shipmentNo.includes('NEW') ? form.shipmentNo : `${form.shipmentNo}-COPY` });
+    await load();
+  }
+
+  async function transition(doc: LogisticsDoc, status: string) {
+    await api.updateLogistics(doc.id, { status });
+    setMessage(`${doc.shipmentNo} moved to ${status}`);
+    await load();
+  }
+
+  function useOrder(orderId: string) {
+    const order = orders.find((item) => item.id === orderId);
+    if (!order) return;
+    setForm({ ...form, orderId: order.id, destination: order.city, packages: Math.max(1, Math.ceil(order.items / 4)), weight: Math.max(1, order.items * 2) });
+  }
+
+  function exportRows() {
+    const header = ['Shipment', 'Type', 'Order', 'Carrier', 'Service', 'Status', 'Origin', 'Destination', 'Packages', 'Weight', 'Owner'];
+    const csv = [header, ...rows.map((doc) => [doc.shipmentNo, doc.type, doc.orderId, doc.carrier, doc.service, doc.status, doc.origin, doc.destination, doc.packages, doc.weight, doc.owner])]
+      .map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(','))
+      .join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${title.replaceAll(' ', '_')}_logistics.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  return (
+    <ScreenShell title={title} actions={<button onClick={exportRows} className="rounded-sm bg-[#00a65a] px-3 py-1 text-xs font-bold text-white">Export CSV</button>}>
+      <SearchForm fields={['AWB No', 'Order No', 'Transporter', 'Service', 'Pin Code', 'From Date', 'To Date', 'Status']} />
+      <div className="grid gap-3 xl:grid-cols-[360px_1fr]">
+        <Panel title={lower.includes('pin') ? 'Service Pin Code' : lower.includes('transporter') ? 'Transporter Preference' : 'Shipment / AWB'}>
+          <form onSubmit={createDoc} className="space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <Input label="Shipment No" value={form.shipmentNo} onChange={(shipmentNo) => setForm({ ...form, shipmentNo })} />
+              <Select label="Status" value={form.status} options={['Active', 'Ready to Ship', 'Packed', 'Manifested', 'Handover', 'Shipped', 'Closed', 'Failed']} onChange={(status) => setForm({ ...form, status })} />
+            </div>
+            <Select label="Order" value={form.orderId} options={[...new Set([form.orderId, ...orders.map((order) => order.id)])]} onChange={useOrder} />
+            <div className="grid grid-cols-2 gap-3">
+              <Input label="Carrier" value={form.carrier} onChange={(carrier) => setForm({ ...form, carrier })} />
+              <Input label="Service" value={form.service} onChange={(service) => setForm({ ...form, service })} />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <Input label="Origin" value={form.origin} onChange={(origin) => setForm({ ...form, origin })} />
+              <Input label="Destination" value={form.destination} onChange={(destination) => setForm({ ...form, destination })} />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <NumberInput label="Packages" value={form.packages} onChange={(packages) => setForm({ ...form, packages })} />
+              <NumberInput label="Weight" value={form.weight} onChange={(weight) => setForm({ ...form, weight })} />
+            </div>
+            <Input label="Owner" value={form.owner} onChange={(owner) => setForm({ ...form, owner })} />
+            <button className="h-9 w-full rounded-sm bg-[#ff9800] text-xs font-bold text-white">Save Shipment</button>
+          </form>
+        </Panel>
+        <div>
+          <div className="mb-3 grid gap-2 md:grid-cols-4">
+            <ReportCard label="Records" value={docs.length.toString()} />
+            <ReportCard label="Active Work" value={active.toString()} />
+            <ReportCard label="Packages" value={totalPackages.toString()} />
+            <ReportCard label="Weight" value={totalWeight.toString()} />
+          </div>
+          <div className="mb-2 flex items-center justify-between gap-2 border border-[#d5e3ef] bg-[#fbfdff] px-3 py-2">
+            <span className="text-xs font-bold text-[#555]">{rows.length} record(s)</span>
+            <input value={filter} onChange={(event) => setFilter(event.target.value)} className="h-8 w-64 border border-[#bfc4c8] px-2 text-xs outline-none focus:border-[#3c8dbc]" placeholder="Filter AWB, carrier, city" />
+          </div>
+          <div className="overflow-x-auto">
+            <table className="vin-grid w-full min-w-[1080px] border-collapse text-sm">
+              <thead className="text-left text-xs uppercase">
+                <tr>{['Shipment', 'Order', 'Carrier', 'Service', 'Status', 'Origin', 'Destination', 'Packages', 'Weight', 'Owner', 'Action'].map((head) => <th key={head} className="px-3 py-2">{head}</th>)}</tr>
+              </thead>
+              <tbody>
+                {rows.map((doc) => (
+                  <tr key={doc.id}>
+                    <td className="px-3 py-3 font-bold text-[#006bb6]">{doc.shipmentNo}</td>
+                    <td className="px-3 py-3">{doc.orderId}</td>
+                    <td className="px-3 py-3">{doc.carrier}</td>
+                    <td className="px-3 py-3">{doc.service}</td>
+                    <td className="px-3 py-3"><Status value={doc.status} /></td>
+                    <td className="px-3 py-3">{doc.origin}</td>
+                    <td className="px-3 py-3">{doc.destination}</td>
+                    <td className="px-3 py-3">{doc.packages}</td>
+                    <td className="px-3 py-3">{doc.weight}</td>
+                    <td className="px-3 py-3">{doc.owner}</td>
+                    <td className="px-3 py-3">
+                      <div className="flex flex-wrap gap-2">
+                        <button onClick={() => transition(doc, 'Manifested')} className="rounded-sm border border-[#a6c9e2] px-2 py-1 text-xs text-[#006bb6]">Manifest</button>
+                        <button onClick={() => transition(doc, 'Handover')} className="rounded-sm bg-[#3c8dbc] px-2 py-1 text-xs text-white">Handover</button>
+                        <button onClick={() => transition(doc, 'Shipped')} className="rounded-sm bg-[#00a65a] px-2 py-1 text-xs text-white">Ship</button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {!rows.length ? <tr><td colSpan={11} className="px-3 py-8 text-center text-[#777]">{busy ? 'Loading...' : 'No logistics records found'}</td></tr> : null}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      <OperationGrid module="wms" type={title} />
     </ScreenShell>
   );
 }

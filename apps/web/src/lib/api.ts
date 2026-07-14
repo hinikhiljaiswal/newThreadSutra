@@ -24,6 +24,9 @@ export type ReportRun = { id: string; type: string; status: string; rows: number
 export type ReturnCase = { id: string; type: string; orderId: string; customer: string; city: string; status: string; reason: string; disposition: string; quantity: number; refundAmount: number; owner: string; dock: string };
 export type MasterDataRecord = { id: string; type: string; code: string; name: string; category: string; status: string; location: string; contact: string; owner: string; balance: number };
 export type ProcurementDoc = { id: string; type: string; documentNo: string; vendor: string; location: string; status: string; items: number; value: number; expectedDate: string; owner: string; asnNo: string; receivedQty: number };
+export type AdminRecord = { id: string; type: string; code: string; name: string; role: string; status: string; location: string; channel: string; lastEvent: string; severity: string; owner: string };
+export type LogisticsDoc = { id: string; type: string; shipmentNo: string; orderId: string; carrier: string; service: string; status: string; origin: string; destination: string; packages: number; weight: number; owner: string };
+export type InventoryTask = { id: string; type: string; sku: string; name: string; fromLocation: string; toLocation: string; status: string; quantity: number; reason: string; owner: string };
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const token = typeof window === 'undefined' ? '' : window.localStorage.getItem('eretail-token');
@@ -169,6 +172,51 @@ export const api = {
     }),
   updateProcurement: (id: string, body: Partial<Omit<ProcurementDoc, 'id' | 'type' | 'documentNo'>>) =>
     request<ProcurementDoc>(`/procurement/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+  adminRecords: (params?: { type?: string }) => {
+    const query = new URLSearchParams();
+    if (params?.type) query.set('type', params.type);
+    return request<AdminRecord[]>(`/admin-records${query.toString() ? `?${query}` : ''}`);
+  },
+  createAdminRecord: (body: Omit<AdminRecord, 'id'>) =>
+    request<AdminRecord>('/admin-records', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  updateAdminRecord: (id: string, body: Partial<Omit<AdminRecord, 'id' | 'type' | 'code'>>) =>
+    request<AdminRecord>(`/admin-records/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+  logistics: (params?: { type?: string }) => {
+    const query = new URLSearchParams();
+    if (params?.type) query.set('type', params.type);
+    return request<LogisticsDoc[]>(`/logistics${query.toString() ? `?${query}` : ''}`);
+  },
+  createLogistics: (body: Omit<LogisticsDoc, 'id'>) =>
+    request<LogisticsDoc>('/logistics', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  updateLogistics: (id: string, body: Partial<Omit<LogisticsDoc, 'id' | 'type' | 'shipmentNo'>>) =>
+    request<LogisticsDoc>(`/logistics/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+  inventoryTasks: (params?: { type?: string }) => {
+    const query = new URLSearchParams();
+    if (params?.type) query.set('type', params.type);
+    return request<InventoryTask[]>(`/inventory-tasks${query.toString() ? `?${query}` : ''}`);
+  },
+  createInventoryTask: (body: Omit<InventoryTask, 'id'>) =>
+    request<InventoryTask>('/inventory-tasks', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  updateInventoryTask: (id: string, body: Partial<Omit<InventoryTask, 'id' | 'type' | 'sku'>>) =>
+    request<InventoryTask>(`/inventory-tasks/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(body),
     }),

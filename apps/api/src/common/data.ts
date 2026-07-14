@@ -77,3 +77,30 @@ export const procurementDocs = [
   { id: 'ASN-70012', type: 'Manage ASN', documentNo: 'ASN-70012', vendor: 'ThreadSutra Vendor 1', location: 'JX Karawaci', status: 'ASN Created', items: 120, value: 48200, expectedDate: '2026-07-18', owner: 'Inbound Team', asnNo: 'ASN-70012', receivedQty: 48 },
   { id: 'INB-8107', type: 'Inbound Enquiry', documentNo: 'INB-8107', vendor: 'ThreadSutra Vendor 1', location: 'Inbound Dock', status: 'QC Pending', items: 48, value: 19280, expectedDate: '2026-07-14', owner: 'Inbound QC', asnNo: 'ASN-70012', receivedQty: 48 },
 ];
+
+export const adminRecords = [
+  { id: 'USR-nnn', type: 'User Enquiry', code: 'ABCDnnn', name: 'ABCD Demo User', role: 'Warehouse Manager', status: 'Active', location: 'JX Karawaci', channel: 'Web', lastEvent: 'Login success', severity: 'Info', owner: 'Admin' },
+  { id: 'USR-api', type: 'User Enquiry', code: 'API-SERVICE', name: 'Marketplace API Service', role: 'Integration', status: 'Active', location: 'API', channel: 'API', lastEvent: 'Token refreshed', severity: 'Info', owner: 'System' },
+  { id: 'LOG-9910', type: 'API Dashboard Logs', code: 'ORD-SYNC-9910', name: 'Order sync completed', role: 'Integration', status: 'Success', location: 'API', channel: 'Marketplace', lastEvent: '15 orders pulled', severity: 'Info', owner: 'System' },
+  { id: 'AUD-7701', type: 'User Audit Logs', code: 'AUD-7701', name: 'Status change on SO-10292', role: 'Audit', status: 'Success', location: 'JX Karawaci', channel: 'Web', lastEvent: 'Ready to Ship applied', severity: 'Info', owner: 'ABCD Demo User' },
+  { id: 'TAXLOG-301', type: 'Tax Integration Log', code: 'GST-301', name: 'GST posting retry', role: 'Finance', status: 'Warning', location: 'India', channel: 'Tax API', lastEvent: 'Retry scheduled', severity: 'Warning', owner: 'Finance' },
+  { id: 'POS-182', type: 'POS Integration Log', code: 'POS-182', name: 'Store stock push', role: 'Integration', status: 'Failed', location: 'Retail POS', channel: 'POS', lastEvent: 'Endpoint timeout', severity: 'Error', owner: 'System' },
+  { id: 'API-001', type: 'Manage Api', code: 'MARKETPLACE-PULL', name: 'Marketplace Pull API', role: 'Connector', status: 'Active', location: 'API', channel: 'Marketplace', lastEvent: 'Healthy', severity: 'Info', owner: 'Admin' },
+];
+
+export const logisticsDocs = [
+  { id: 'AWB-98017', type: 'Manage AWB', shipmentNo: 'AWB-98017', orderId: 'SO-10292', carrier: 'BlueDart Express', service: 'Surface', status: 'Ready to Ship', origin: 'JX Karawaci', destination: 'Delhi', packages: 6, weight: 18, owner: 'Logistics' },
+  { id: 'SHIP-6102', type: 'Delivery Shipping', shipmentNo: 'SHIP-6102', orderId: 'SO-10291', carrier: 'Delhivery', service: 'Express', status: 'Packed', origin: 'Shipping Dock', destination: 'Mumbai', packages: 2, weight: 8, owner: 'Outbound' },
+  { id: 'HAND-4421', type: 'Shipment Handover', shipmentNo: 'HAND-4421', orderId: 'BATCH-4421', carrier: 'BlueDart Express', service: 'Manifest', status: 'Manifested', origin: 'Shipping Dock', destination: 'Carrier Hub', packages: 12, weight: 46, owner: 'Logistics' },
+  { id: 'TRP-014', type: 'Transporter Preference', shipmentNo: 'TRP-014', orderId: 'PIN-110001', carrier: 'BlueDart Express', service: 'Preferred', status: 'Active', origin: 'India', destination: 'Delhi', packages: 0, weight: 0, owner: 'Logistics' },
+  { id: 'PIN-560001', type: 'Manage Service Pin Code', shipmentNo: 'PIN-560001', orderId: 'PIN-560001', carrier: 'Delhivery', service: 'COD Enabled', status: 'Active', origin: 'JX Karawaci', destination: 'Bengaluru', packages: 0, weight: 0, owner: 'Logistics' },
+];
+
+export const inventoryTasks = [
+  { id: 'MOV-6001', type: 'Inventory Move', sku: 'TS-KURTA-IND-001', name: 'Indigo Block Kurta', fromLocation: 'A-01-04', toLocation: 'B-01-02', status: 'Open', quantity: 12, reason: 'Re-slotting', owner: 'Warehouse' },
+  { id: 'MOV-6002', type: 'Inventory Move History', sku: 'TS-SHIRT-LIN-033', name: 'Linen Shirt', fromLocation: 'A-04-13', toLocation: 'A-02-01', status: 'Completed', quantity: 24, reason: 'Pick face refill', owner: 'Warehouse' },
+  { id: 'CNT-2026', type: 'Cycle Count', sku: 'TS-SAREE-BAN-022', name: 'Banarasi Saree', fromLocation: 'C-03-08', toLocation: 'C-03-08', status: 'Count Pending', quantity: 21, reason: 'Cycle count wave', owner: 'Auditor 01' },
+  { id: 'HLD-3009', type: 'Inventory Hold', sku: 'TS-JKT-IKT-009', name: 'Ikat Jacket', fromLocation: 'D-01-02', toLocation: 'D-01-02', status: 'Held', quantity: 6, reason: 'QC hold', owner: 'Inventory Control' },
+  { id: 'RES-7001', type: 'Manage Inventory Reservation', sku: 'TS-DUP-CHN-014', name: 'Chanderi Dupatta', fromLocation: 'B-02-11', toLocation: 'B2B Reservation', status: 'Reserved', quantity: 18, reason: 'B2B allocation', owner: 'Sales Ops' },
+  { id: 'TXN-9911', type: 'SKU Transaction History', sku: 'TS-KURTA-IND-001', name: 'Indigo Block Kurta', fromLocation: 'Inbound Dock', toLocation: 'A-01-04', status: 'Posted', quantity: 40, reason: 'ASN receipt', owner: 'System' },
+];
