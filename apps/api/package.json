@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "nest start --watch",
     "build": "tsc -p tsconfig.build.json",
-    "start": "node dist/main.js"
+    "start": "node dist/main.js",
+    "db:init": "node dist/scripts/init-db.js"
   },
   "dependencies": {
     "@nestjs/cli": "^11.0.24",

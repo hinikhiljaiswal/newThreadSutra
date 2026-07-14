@@ -3,7 +3,7 @@ services:
     name: eretail-combined
     runtime: node
     rootDir: .
-    buildCommand: npm ci --include=dev && npm run build
+    buildCommand: npm ci --include=dev && npm run build && if [ -n "$MONGODB_URI" ]; then npm run db:init; else echo "MONGODB_URI not set; skipping db:init"; fi
     startCommand: npm run start:all
     healthCheckPath: /api/health
     envVars:
@@ -15,6 +15,8 @@ services:
         sync: false
       - key: MONGODB_URI
         sync: false
+      - key: MONGODB_DB_NAME
+        value: eretail_replica
       - key: API_PORT
         value: "5050"
 
@@ -22,7 +24,7 @@ services:
     name: eretail-api
     runtime: node
     rootDir: .
-    buildCommand: npm ci --include=dev && npm run build --workspace apps/api
+    buildCommand: npm ci --include=dev && npm run build --workspace apps/api && if [ -n "$MONGODB_URI" ]; then npm run db:init; else echo "MONGODB_URI not set; skipping db:init"; fi
     startCommand: npm run start:api
     healthCheckPath: /api/health
     envVars:
@@ -34,6 +36,8 @@ services:
         sync: false
       - key: MONGODB_URI
         sync: false
+      - key: MONGODB_DB_NAME
+        value: eretail_replica
       - key: WEB_ORIGIN_HOST
         fromService:
           type: web

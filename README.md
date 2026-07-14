@@ -42,6 +42,14 @@ Use the included `render.yaml` Blueprint, or create two Render web services manu
 - API service: build `npm ci && npm run build --workspace apps/api`, start `npm run start:api`
 - Web service: build `npm ci && npm run build --workspace apps/web`, start `npm run start:web`
 
-Set the API service env vars `JWT_SECRET`, `MONGODB_URI`, and `WEB_ORIGIN` or `WEB_ORIGIN_HOST`. Set the web service env var `NEXT_PUBLIC_API_URL` or `NEXT_PUBLIC_API_HOST`.
+Set the API service env vars `JWT_SECRET`, `MONGODB_URI`, `MONGODB_DB_NAME`, and `WEB_ORIGIN` or `WEB_ORIGIN_HOST`. Set the web service env var `NEXT_PUBLIC_API_URL` or `NEXT_PUBLIC_API_HOST`.
 
 If you intentionally deploy both apps into one Render web service, set the Build Command to `npm ci --include=dev && npm run build` and the Start Command to `npm run start:all`. In that mode the API listens on `API_PORT` defaulting to `5050`, Next.js listens on Render's `$PORT`, and Next proxies `/api/*` to the internal API.
+
+MongoDB Atlas is initialized automatically during API startup and by the Render Blueprint build command when `MONGODB_URI` is present. The default database name is `eretail_replica`; override it with `MONGODB_DB_NAME`. To run it manually from a Render shell after a build:
+
+```bash
+npm run db:init
+```
+
+The initializer creates/syncs indexes for orders, inventory, and operation records, then upserts the seeded demo records without duplicating existing data.

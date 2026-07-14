@@ -1,7 +1,8 @@
-import { Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Model, Schema, connect, model, models } from 'mongoose';
+import { Model, connect, model, models } from 'mongoose';
 import { inventory, operationRecords, orders } from './data';
+import { inventorySchema, operationSchema, orderSchema } from './schemas';
 
 export type OrderStatus = 'Pending Pick' | 'Allocated' | 'Packed' | 'Ready to Ship' | 'Shipped' | 'Cancelled' | 'Exception';
 export type Order = (typeof orders)[number] & { createdAt?: Date; updatedAt?: Date };
@@ -16,6 +17,7 @@ export type UpdateOperationInput = Partial<CreateOperationInput>;
 
 @Injectable()
 export class DatabaseService implements OnModuleInit {
+  private readonly logger = new Logger(DatabaseService.name);
   private orderModel?: Model<Order>;
   private inventoryModel?: Model<InventoryItem>;
   private operationModel?: Model<OperationRecord>;
@@ -28,38 +30,23 @@ export class DatabaseService implements OnModuleInit {
 
   async onModuleInit() {
     const uri = this.config.get<string>('MONGODB_URI');
-    if (!uri) return;
+    if (!uri) {
+      this.logger.warn('MONGODB_URI is not set. Using in-memory seed data.');
+      return;
+    }
 
     try {
-      await connect(uri, { serverSelectionTimeoutMS: 1500 });
-      this.orderModel =
-        (models.Order as Model<Order>) ??
-        model<Order>(
-          'Order',
-          new Schema(
-            { id: { type: String, unique: true }, channel: String, customer: String, status: String, items: Number, value: Number, city: String, sla: String },
-            { timestamps: true },
-          ),
-        );
-      this.inventoryModel =
-        (models.InventoryItem as Model<InventoryItem>) ??
-        model<InventoryItem>(
-          'InventoryItem',
-          new Schema({ sku: { type: String, unique: true }, name: String, location: String, available: Number, allocated: Number, reorder: Number }, { timestamps: true }),
-        );
-      this.operationModel =
-        (models.OperationRecord as Model<OperationRecord>) ??
-        model<OperationRecord>(
-          'OperationRecord',
-          new Schema(
-            { id: { type: String, unique: true }, module: String, type: String, name: String, status: String, location: String, owner: String, amount: Number, quantity: Number },
-            { timestamps: true },
-          ),
-        );
+      await connect(uri, { dbName: this.config.get<string>('MONGODB_DB_NAME') ?? 'eretail_replica', serverSelectionTimeoutMS: 10_000 });
+      this.orderModel = (models.Order as Model<Order>) ?? model<Order>('Order', orderSchema);
+      this.inventoryModel = (models.InventoryItem as Model<InventoryItem>) ?? model<InventoryItem>('InventoryItem', inventorySchema);
+      this.operationModel = (models.OperationRecord as Model<OperationRecord>) ?? model<OperationRecord>('OperationRecord', operationSchema);
       await this.seed();
       this.ready = true;
-    } catch {
+      this.logger.log('MongoDB connected, indexed, and seeded.');
+    } catch (error) {
       this.ready = false;
+      this.logger.error('MongoDB initialization failed.', error instanceof Error ? error.stack : String(error));
+      if (this.config.get<string>('NODE_ENV') === 'production') throw error;
     }
   }
 
@@ -198,8 +185,9 @@ export class DatabaseService implements OnModuleInit {
 
   private async seed() {
     if (!this.orderModel || !this.inventoryModel || !this.operationModel) return;
-    if ((await this.orderModel.countDocuments()) === 0) await this.orderModel.insertMany(orders);
-    if ((await this.inventoryModel.countDocuments()) === 0) await this.inventoryModel.insertMany(inventory);
-    if ((await this.operationModel.countDocuments()) === 0) await this.operationModel.insertMany(operationRecords);
+    await Promise.all([this.orderModel.syncIndexes(), this.inventoryModel.syncIndexes(), this.operationModel.syncIndexes()]);
+    await Promise.all(orders.map((order) => this.orderModel!.updateOne({ id: order.id }, { $setOnInsert: order }, { upsert: true })));
+    await Promise.all(inventory.map((item) => this.inventoryModel!.updateOne({ sku: item.sku }, { $setOnInsert: item }, { upsert: true })));
+    await Promise.all(operationRecords.map((record) => this.operationModel!.updateOne({ id: record.id }, { $setOnInsert: record }, { upsert: true })));
   }
 }
