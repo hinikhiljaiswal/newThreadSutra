@@ -1,8 +1,10 @@
 export const demoUser = {
   organization: 'ABCD',
   username: 'nnn',
+  loginIds: ['ABCDnnn', 'ABCDNNN'],
   displayName: 'ABCD Demo User',
   role: 'Warehouse Manager',
+  passwords: ['ABCD@1122', 'ABCD@1122 '],
   password: 'ABCD@1122',
 };
 

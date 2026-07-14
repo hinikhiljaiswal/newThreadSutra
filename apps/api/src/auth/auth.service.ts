@@ -7,12 +7,16 @@ export class AuthService {
   constructor(private readonly jwt: JwtService) {}
 
   login(input: { loginId?: string; organization?: string; username?: string; password: string }) {
-    const loginId = input.loginId?.trim();
+    const loginId = input.loginId?.trim().replace(/\s+/g, '');
     const organization = (input.organization?.trim() || loginId?.slice(0, 4) || '').toUpperCase();
     const username = input.username?.trim() || loginId?.slice(4) || '';
     const password = input.password.trim();
+    const acceptedLoginIds = demoUser.loginIds.map((value) => value.toLowerCase());
+    const loginIdMatches = loginId ? acceptedLoginIds.includes(loginId.toLowerCase()) : false;
+    const splitLoginMatches = organization === demoUser.organization && username.toLowerCase() === demoUser.username.toLowerCase();
+    const passwordMatches = demoUser.passwords.map((value) => value.trim()).includes(password);
 
-    if (organization !== demoUser.organization || username.toLowerCase() !== demoUser.username.toLowerCase() || password !== demoUser.password) {
+    if ((!loginIdMatches && !splitLoginMatches) || !passwordMatches) {
       throw new UnauthorizedException('Invalid organization, user, or password');
     }
 
