@@ -1,5 +1,5 @@
 import { Schema } from 'mongoose';
-import type { InventoryItem, OperationRecord, Order } from './database.service';
+import type { ImportJob, InventoryItem, OperationRecord, Order, ReportRun } from './database.service';
 
 export const orderSchema = new Schema<Order>(
   {
@@ -43,3 +43,32 @@ export const operationSchema = new Schema<OperationRecord>(
 );
 
 operationSchema.index({ module: 1, type: 1 });
+
+export const importJobSchema = new Schema<ImportJob>(
+  {
+    id: { type: String, unique: true, index: true, required: true },
+    type: { type: String, required: true, index: true },
+    fileName: { type: String, required: true },
+    status: { type: String, required: true, index: true },
+    rows: { type: Number, required: true },
+    successRows: { type: Number, required: true },
+    failedRows: { type: Number, required: true },
+    owner: { type: String, required: true },
+    message: { type: String, default: '' },
+  },
+  { timestamps: true },
+);
+
+export const reportRunSchema = new Schema<ReportRun>(
+  {
+    id: { type: String, unique: true, index: true, required: true },
+    type: { type: String, required: true, index: true },
+    status: { type: String, required: true, index: true },
+    rows: { type: Number, required: true },
+    owner: { type: String, required: true },
+    format: { type: String, required: true },
+    totalAmount: { type: Number, default: 0 },
+    message: { type: String, default: '' },
+  },
+  { timestamps: true },
+);

@@ -6,9 +6,11 @@ import { AuthModule } from './auth/auth.module';
 import { DatabaseModule } from './common/database.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { HealthModule } from './health/health.module';
+import { ImportsModule } from './imports/imports.module';
 import { InventoryModule } from './inventory/inventory.module';
 import { OperationsModule } from './operations/operations.module';
 import { OrdersModule } from './orders/orders.module';
+import { ReportsModule } from './reports/reports.module';
 
 @Module({
   imports: [
@@ -18,9 +20,11 @@ import { OrdersModule } from './orders/orders.module';
     AuthModule,
     HealthModule,
     DashboardModule,
+    ImportsModule,
     OrdersModule,
     InventoryModule,
     OperationsModule,
+    ReportsModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })

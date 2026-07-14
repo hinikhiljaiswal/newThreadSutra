@@ -22,7 +22,7 @@ import {
   User,
   Warehouse,
 } from 'lucide-react';
-import { api, InventoryItem, Metric, OperationRecord, Order } from '@/lib/api';
+import { api, ImportJob, InventoryItem, Metric, OperationRecord, Order, ReportRun } from '@/lib/api';
 
 type Session = { displayName: string; role: string; organization: string; username: string };
 type ModuleKey = 'dashboard' | 'master' | 'procurement' | 'sales' | 'wms' | 'returns' | 'inventory' | 'warehouse' | 'shipping' | 'reports' | 'admin';
@@ -634,6 +634,12 @@ function OpenedScreen({ screen, orders, inventory, onRefresh, setMessage }: { sc
   const title = screen.title;
   const lower = title.toLowerCase();
 
+  if (screen.module === 'wms' && ['allocate', 'unallocate', 'pick', 'pack', 'ship', 'handover', 'acknowledgement', 'sort to box', 'bulk order'].some((term) => lower.includes(term))) {
+    return <FulfillmentWorkbench title={title} orders={orders} onRefresh={onRefresh} setMessage={setMessage} />;
+  }
+  if (lower.includes('import') || lower.includes('bulk upload')) {
+    return <ImportWorkbench title={title} setMessage={setMessage} />;
+  }
   if (lower.includes('order') && !lower.includes('import')) {
     return <OrderEnquiryScreen title={title} orders={orders} onRefresh={onRefresh} setMessage={setMessage} />;
   }
@@ -650,7 +656,7 @@ function OpenedScreen({ screen, orders, inventory, onRefresh, setMessage }: { sc
     return <AdminOperationScreen title={title} />;
   }
   if (lower.includes('report') || lower.includes('register') || lower.includes('invoice') || lower.includes('manifest')) {
-    return <ReportOperationScreen title={title} orders={orders} inventory={inventory} />;
+    return <ReportOperationScreen title={title} orders={orders} inventory={inventory} setMessage={setMessage} />;
   }
   if (lower.includes('po') || lower.includes('asn') || lower.includes('vendor')) {
     return <ProcurementOperationScreen title={title} />;
@@ -702,6 +708,263 @@ function OrderEnquiryScreen({ title, orders, onRefresh, setMessage }: { title: s
     <ScreenShell title={title} actions={<button className="rounded-sm bg-[#ff9800] px-3 py-1 text-xs font-bold text-white">Create New</button>}>
       <SearchForm fields={['Order No', 'Web Order No', 'Channel', 'Customer', 'From Date', 'To Date', 'Status', 'AWB No', 'Invoice No', 'SKU Code']} />
       <OrderTable orders={orders} onStatus={move} />
+    </ScreenShell>
+  );
+}
+
+function FulfillmentWorkbench({ title, orders, onRefresh, setMessage }: { title: string; orders: Order[]; onRefresh: () => Promise<void>; setMessage: (message: string) => void }) {
+  const lower = title.toLowerCase();
+  const defaultStatus = lower.includes('ship') || lower.includes('handover') ? 'Shipped' : lower.includes('pick') ? 'Packed' : lower.includes('bulk') ? 'Allocated' : 'Allocated';
+  const [selected, setSelected] = useState<string[]>([]);
+  const [nextStatus, setNextStatus] = useState(defaultStatus);
+  const [filter, setFilter] = useState('');
+  const [activity, setActivity] = useState<string[]>([]);
+  const rows = orders.filter((order) => {
+    const text = [order.id, order.channel, order.customer, order.status, order.city, order.sla].join(' ').toLowerCase();
+    return text.includes(filter.toLowerCase());
+  });
+  const selectedRows = rows.filter((order) => selected.includes(order.id));
+  const totalValue = selectedRows.reduce((sum, order) => sum + order.value, 0);
+  const totalItems = selectedRows.reduce((sum, order) => sum + order.items, 0);
+  const allSelected = Boolean(rows.length) && rows.every((order) => selected.includes(order.id));
+
+  useEffect(() => {
+    setNextStatus(defaultStatus);
+    setSelected([]);
+    setActivity([]);
+  }, [title]);
+
+  function toggle(id: string) {
+    setSelected((ids) => (ids.includes(id) ? ids.filter((item) => item !== id) : [...ids, id]));
+  }
+
+  function toggleAll() {
+    setSelected(allSelected ? [] : rows.map((order) => order.id));
+  }
+
+  async function applyBulkStatus() {
+    if (!selected.length) return;
+    const result = await api.bulkUpdateOrders({ ids: selected, status: nextStatus });
+    setActivity((items) => [`${result.updated} order(s) moved to ${nextStatus}`, ...items].slice(0, 6));
+    setMessage(`${result.updated} order(s) moved to ${nextStatus}`);
+    setSelected([]);
+    await onRefresh();
+  }
+
+  async function moveOne(id: string, status: string) {
+    await api.updateOrder(id, { status });
+    setActivity((items) => [`${id} moved to ${status}`, ...items].slice(0, 6));
+    setMessage(`${id} moved to ${status}`);
+    await onRefresh();
+  }
+
+  function exportManifest() {
+    const exportRows = selectedRows.length ? selectedRows : rows;
+    const header = ['Order', 'Channel', 'Customer', 'City', 'Status', 'Items', 'Value', 'SLA'];
+    const csv = [header, ...exportRows.map((order) => [order.id, order.channel, order.customer, order.city, order.status, order.items, order.value, order.sla])]
+      .map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(','))
+      .join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${title.replaceAll(' ', '_')}_manifest.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+    setActivity((items) => [`Manifest exported for ${exportRows.length} order(s)`, ...items].slice(0, 6));
+  }
+
+  return (
+    <ScreenShell title={title} actions={<button onClick={exportManifest} className="rounded-sm bg-[#00a65a] px-3 py-1 text-xs font-bold text-white">Manifest CSV</button>}>
+      <SearchForm fields={['Order No', 'Web Order No', 'Picklist No', 'AWB No', 'Channel', 'Location', 'From Date', 'To Date', 'Status']} />
+      <div className="mb-3 grid gap-2 md:grid-cols-4">
+        <ReportCard label="Selected Orders" value={selected.length.toString()} />
+        <ReportCard label="Selected Qty" value={totalItems.toString()} />
+        <ReportCard label="Selected Value" value={new Intl.NumberFormat('en-IN').format(totalValue)} />
+        <ReportCard label="Queue Size" value={rows.length.toString()} />
+      </div>
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2 border border-[#d5e3ef] bg-[#fbfdff] px-3 py-2 text-xs">
+        <div className="flex items-center gap-2">
+          <span className="font-bold text-[#555]">Bulk Action</span>
+          <select value={nextStatus} onChange={(event) => setNextStatus(event.target.value)} className="h-8 border border-[#bfc4c8] bg-white px-2">
+            {orderStatuses.map((status) => <option key={status}>{status}</option>)}
+          </select>
+          <button disabled={!selected.length} onClick={applyBulkStatus} className="h-8 rounded-sm bg-[#3c8dbc] px-3 font-bold text-white disabled:opacity-40">Apply</button>
+          <button disabled={!selected.length} onClick={() => setSelected([])} className="h-8 rounded-sm border border-[#bfc4c8] bg-white px-3 font-bold text-[#555] disabled:opacity-40">Clear</button>
+        </div>
+        <input value={filter} onChange={(event) => setFilter(event.target.value)} className="h-8 w-64 border border-[#bfc4c8] px-2 text-xs outline-none focus:border-[#3c8dbc]" placeholder="Filter orders, customer, city" />
+      </div>
+      <div className="overflow-x-auto">
+        <table className="vin-grid w-full min-w-[980px] border-collapse text-sm">
+          <thead className="text-left text-xs uppercase">
+            <tr>
+              <th className="px-3 py-2"><input type="checkbox" checked={allSelected} onChange={toggleAll} aria-label="Select all orders" /></th>
+              {['Order', 'Channel', 'Customer', 'City', 'Status', 'Items', 'Value', 'SLA', 'Action'].map((head) => <th key={head} className="px-3 py-2">{head}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((order) => (
+              <tr key={order.id}>
+                <td className="px-3 py-3"><input type="checkbox" checked={selected.includes(order.id)} onChange={() => toggle(order.id)} aria-label={`Select ${order.id}`} /></td>
+                <td className="px-3 py-3 font-bold text-[#006bb6]">{order.id}</td>
+                <td className="px-3 py-3">{order.channel}</td>
+                <td className="px-3 py-3">{order.customer}</td>
+                <td className="px-3 py-3">{order.city}</td>
+                <td className="px-3 py-3"><Status value={order.status} /></td>
+                <td className="px-3 py-3">{order.items}</td>
+                <td className="px-3 py-3">{new Intl.NumberFormat('en-IN').format(order.value)}</td>
+                <td className="px-3 py-3">{order.sla}</td>
+                <td className="px-3 py-3">
+                  <select className="h-8 border border-[#bfc4c8] bg-white px-2 text-xs" value={order.status} onChange={(event) => moveOne(order.id, event.target.value)}>
+                    {orderStatuses.map((status) => <option key={status}>{status}</option>)}
+                  </select>
+                </td>
+              </tr>
+            ))}
+            {!rows.length ? <tr><td colSpan={10} className="px-3 py-8 text-center text-[#777]">No orders found</td></tr> : null}
+          </tbody>
+        </table>
+      </div>
+      <div className="mt-3 grid gap-3 xl:grid-cols-[1fr_320px]">
+        <Panel title="Dock Summary">
+          <div className="grid gap-2 md:grid-cols-4">
+            {orderStatuses.map((status) => <ReportCard key={status} label={status} value={orders.filter((order) => order.status === status).length.toString()} />)}
+          </div>
+        </Panel>
+        <Panel title="Activity / Audit Trail">
+          <div className="text-xs text-[#555]">
+            {activity.length ? activity.map((item, index) => <div key={`${item}-${index}`} className="border-b border-[#eef3f7] py-1">{item}</div>) : <div>No activity yet</div>}
+          </div>
+        </Panel>
+      </div>
+    </ScreenShell>
+  );
+}
+
+function ImportWorkbench({ title, setMessage }: { title: string; setMessage: (message: string) => void }) {
+  const [jobs, setJobs] = useState<ImportJob[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [form, setForm] = useState({ fileName: `${title.replaceAll(' ', '-').toLowerCase()}.csv`, rows: 25, owner: 'Operations' });
+  const [filter, setFilter] = useState('');
+  const rows = jobs.filter((job) => [job.id, job.fileName, job.status, job.owner, job.message].join(' ').toLowerCase().includes(filter.toLowerCase()));
+  const complete = jobs.filter((job) => job.status === 'Completed').length;
+  const failed = jobs.filter((job) => job.status === 'Failed').length;
+  const queued = jobs.filter((job) => ['Queued', 'Processing'].includes(job.status)).length;
+
+  useEffect(() => {
+    void load();
+  }, [title]);
+
+  async function load() {
+    setBusy(true);
+    try {
+      const exact = await api.imports({ type: title });
+      const all = exact.length ? exact : await api.imports();
+      setJobs(all.filter((job) => job.type === title || !exact.length));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function createJob(event: React.FormEvent) {
+    event.preventDefault();
+    const job = await api.createImport({
+      type: title,
+      fileName: form.fileName,
+      rows: Number(form.rows || 0),
+      owner: form.owner,
+      message: 'File received and queued for validation',
+    });
+    setMessage(`${job.id} queued`);
+    setForm({ fileName: `${title.replaceAll(' ', '-').toLowerCase()}.csv`, rows: 25, owner: 'Operations' });
+    await load();
+  }
+
+  async function transition(job: ImportJob, status: string) {
+    const successRows = status === 'Completed' ? job.rows - job.failedRows : status === 'Failed' ? job.successRows : Math.min(job.rows, Math.max(job.successRows, Math.ceil(job.rows * 0.6)));
+    const failedRows = status === 'Failed' && job.failedRows === 0 ? Math.max(1, Math.floor(job.rows * 0.1)) : job.failedRows;
+    const message = status === 'Completed' ? 'Import completed successfully' : status === 'Failed' ? 'Validation failed for one or more rows' : 'Rows are being validated';
+    await api.updateImport(job.id, { status, successRows, failedRows, message });
+    setMessage(`${job.id} marked ${status}`);
+    await load();
+  }
+
+  function downloadTemplate() {
+    const header = title.toLowerCase().includes('sku')
+      ? ['SKU', 'Name', 'Barcode', 'Category', 'Brand', 'MRP']
+      : title.toLowerCase().includes('order')
+        ? ['OrderNo', 'Channel', 'Customer', 'SKU', 'Qty', 'Amount']
+        : ['Code', 'Name', 'Location', 'Status', 'Value'];
+    const sample = header.map((head) => `${head}-Sample`);
+    const csv = [header, sample].map((row) => row.map((cell) => `"${cell}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${title.replaceAll(' ', '_')}_template.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  return (
+    <ScreenShell title={title} actions={<button onClick={downloadTemplate} className="rounded-sm bg-[#00a65a] px-3 py-1 text-xs font-bold text-white">Download Template</button>}>
+      <SearchForm fields={['Import No', 'File Name', 'Created By', 'From Date', 'To Date', 'Status']} />
+      <div className="grid gap-3 xl:grid-cols-[360px_1fr]">
+        <Panel title="Upload File">
+          <form onSubmit={createJob} className="space-y-3">
+            <Input label="File Name" value={form.fileName} onChange={(fileName) => setForm({ ...form, fileName })} />
+            <div className="grid grid-cols-2 gap-3">
+              <NumberInput label="Rows" value={form.rows} onChange={(rows) => setForm({ ...form, rows })} />
+              <Input label="Owner" value={form.owner} onChange={(owner) => setForm({ ...form, owner })} />
+            </div>
+            <div className="border border-dashed border-[#b8b8b8] bg-[#fbfbfb] p-4 text-center text-xs text-[#777]">
+              CSV/XLS file staging area
+            </div>
+            <button className="h-9 w-full rounded-sm bg-[#ff9800] text-xs font-bold text-white">Upload / Queue Import</button>
+          </form>
+        </Panel>
+        <div>
+          <div className="mb-3 grid gap-2 md:grid-cols-4">
+            <ReportCard label="Total Jobs" value={jobs.length.toString()} />
+            <ReportCard label="Queued / Processing" value={queued.toString()} />
+            <ReportCard label="Completed" value={complete.toString()} />
+            <ReportCard label="Failed" value={failed.toString()} />
+          </div>
+          <div className="mb-2 flex items-center justify-between gap-2 border border-[#d5e3ef] bg-[#fbfdff] px-3 py-2">
+            <span className="text-xs font-bold text-[#555]">{rows.length} job(s)</span>
+            <input value={filter} onChange={(event) => setFilter(event.target.value)} className="h-8 w-64 border border-[#bfc4c8] px-2 text-xs outline-none focus:border-[#3c8dbc]" placeholder="Filter jobs" />
+          </div>
+          <div className="overflow-x-auto">
+            <table className="vin-grid w-full min-w-[920px] border-collapse text-sm">
+              <thead className="text-left text-xs uppercase">
+                <tr>{['Import No', 'File', 'Status', 'Rows', 'Success', 'Failed', 'Owner', 'Message', 'Action'].map((head) => <th key={head} className="px-3 py-2">{head}</th>)}</tr>
+              </thead>
+              <tbody>
+                {rows.map((job) => (
+                  <tr key={job.id}>
+                    <td className="px-3 py-3 font-bold text-[#006bb6]">{job.id}</td>
+                    <td className="px-3 py-3">{job.fileName}</td>
+                    <td className="px-3 py-3"><Status value={job.status} /></td>
+                    <td className="px-3 py-3">{job.rows}</td>
+                    <td className="px-3 py-3">{job.successRows}</td>
+                    <td className="px-3 py-3">{job.failedRows}</td>
+                    <td className="px-3 py-3">{job.owner}</td>
+                    <td className="px-3 py-3">{job.message}</td>
+                    <td className="px-3 py-3">
+                      <div className="flex gap-2">
+                        <button onClick={() => transition(job, 'Processing')} className="rounded-sm border border-[#a6c9e2] px-2 py-1 text-xs text-[#006bb6]">Process</button>
+                        <button onClick={() => transition(job, 'Completed')} className="rounded-sm bg-[#00a65a] px-2 py-1 text-xs text-white">Complete</button>
+                        <button onClick={() => transition(job, 'Failed')} className="rounded-sm bg-[#dd4b39] px-2 py-1 text-xs text-white">Fail</button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {!rows.length ? <tr><td colSpan={9} className="px-3 py-8 text-center text-[#777]">{busy ? 'Loading...' : 'No import jobs found'}</td></tr> : null}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
     </ScreenShell>
   );
 }
@@ -769,12 +1032,12 @@ function AdminOperationScreen({ title }: { title: string }) {
   );
 }
 
-function ReportOperationScreen({ title, orders, inventory }: { title: string; orders: Order[]; inventory: InventoryItem[] }) {
+function ReportOperationScreen({ title, orders, inventory, setMessage }: { title: string; orders: Order[]; inventory: InventoryItem[]; setMessage: (message: string) => void }) {
   return (
-    <ScreenShell title={title} actions={<button className="rounded-sm bg-[#00a65a] px-3 py-1 text-xs font-bold text-white">Download XLS</button>}>
+    <ScreenShell title={title}>
       <SearchForm fields={['From Date', 'To Date', 'Location', 'Channel', 'SKU Code', 'Status']} />
       <ReportsModule orders={orders} inventory={inventory} />
-      <OperationGrid module="reports" type={title} />
+      <ReportRunWorkbench title={title} orders={orders} inventory={inventory} setMessage={setMessage} />
     </ScreenShell>
   );
 }
@@ -1301,6 +1564,121 @@ function ReportsModule({ orders, inventory }: { orders: Order[]; inventory: Inve
       <ReportCard label="Order Revenue" value={new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(value)} />
       <ReportCard label="Inventory Units" value={units.toString()} />
       <ReportCard label="Fulfillment Rate" value={`${Math.round((orders.filter((order) => order.status === 'Shipped').length / Math.max(1, orders.length)) * 100)}%`} />
+    </div>
+  );
+}
+
+function ReportRunWorkbench({ title, orders, inventory, setMessage }: { title: string; orders: Order[]; inventory: InventoryItem[]; setMessage: (message: string) => void }) {
+  const [runs, setRuns] = useState<ReportRun[]>([]);
+  const [filter, setFilter] = useState('');
+  const [format, setFormat] = useState('CSV');
+  const [owner, setOwner] = useState('Reports');
+  const rows = runs.filter((run) => [run.id, run.status, run.owner, run.format, run.message].join(' ').toLowerCase().includes(filter.toLowerCase()));
+  const amount = orders.reduce((total, order) => total + order.value, 0);
+  const suggestedRows = title.toLowerCase().includes('inventory') || title.toLowerCase().includes('inv') ? inventory.length : orders.length;
+  const totalGenerated = runs.filter((run) => run.status === 'Generated').length;
+
+  useEffect(() => {
+    void load();
+  }, [title]);
+
+  async function load() {
+    const exact = await api.reports({ type: title });
+    const all = exact.length ? exact : await api.reports();
+    setRuns(all.filter((run) => run.type === title || !exact.length));
+  }
+
+  async function generateReport(event: React.FormEvent) {
+    event.preventDefault();
+    const run = await api.createReport({
+      type: title,
+      rows: suggestedRows,
+      owner,
+      format,
+      totalAmount: amount,
+      message: 'Report queued for generation',
+    });
+    setMessage(`${run.id} queued`);
+    await load();
+  }
+
+  async function transition(run: ReportRun, status: string) {
+    const message = status === 'Generated' ? 'Report generated successfully' : status === 'Failed' ? 'Report generation failed' : 'Report is processing';
+    await api.updateReport(run.id, { status, message, rows: run.rows || suggestedRows, totalAmount: run.totalAmount || amount });
+    setMessage(`${run.id} marked ${status}`);
+    await load();
+  }
+
+  function exportRun(run?: ReportRun) {
+    const exportRows = title.toLowerCase().includes('inventory') || title.toLowerCase().includes('inv')
+      ? inventory.map((item) => [item.sku, item.name, item.location, item.available, item.allocated, item.reorder])
+      : orders.map((order) => [order.id, order.channel, order.customer, order.status, order.items, order.value, order.city, order.sla]);
+    const header = title.toLowerCase().includes('inventory') || title.toLowerCase().includes('inv')
+      ? ['SKU', 'Name', 'Location', 'Available', 'Allocated', 'Reorder']
+      : ['Order', 'Channel', 'Customer', 'Status', 'Items', 'Value', 'City', 'SLA'];
+    const csv = [header, ...exportRows].map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${(run?.id ?? title).replaceAll(' ', '_')}.${(run?.format ?? format).toLowerCase() === 'xls' ? 'csv' : 'csv'}`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  return (
+    <div className="mt-3 grid gap-3 xl:grid-cols-[360px_1fr]">
+      <Panel title="Generate Report">
+        <form onSubmit={generateReport} className="space-y-3">
+          <Select label="Format" value={format} options={['CSV', 'XLS', 'PDF']} onChange={setFormat} />
+          <Input label="Owner" value={owner} onChange={setOwner} />
+          <div className="grid grid-cols-2 gap-3">
+            <ReportCard label="Rows" value={suggestedRows.toString()} />
+            <ReportCard label="Amount" value={new Intl.NumberFormat('en-IN').format(amount)} />
+          </div>
+          <button className="h-9 w-full rounded-sm bg-[#ff9800] text-xs font-bold text-white">Generate</button>
+          <button type="button" onClick={() => exportRun()} className="h-9 w-full rounded-sm bg-[#00a65a] text-xs font-bold text-white">Quick Export</button>
+        </form>
+      </Panel>
+      <div>
+        <div className="mb-3 grid gap-2 md:grid-cols-3">
+          <ReportCard label="Report Runs" value={runs.length.toString()} />
+          <ReportCard label="Generated" value={totalGenerated.toString()} />
+          <ReportCard label="Pending" value={runs.filter((run) => run.status !== 'Generated').length.toString()} />
+        </div>
+        <div className="mb-2 flex items-center justify-between gap-2 border border-[#d5e3ef] bg-[#fbfdff] px-3 py-2">
+          <span className="text-xs font-bold text-[#555]">{rows.length} run(s)</span>
+          <input value={filter} onChange={(event) => setFilter(event.target.value)} className="h-8 w-64 border border-[#bfc4c8] px-2 text-xs outline-none focus:border-[#3c8dbc]" placeholder="Filter report runs" />
+        </div>
+        <div className="overflow-x-auto">
+          <table className="vin-grid w-full min-w-[840px] border-collapse text-sm">
+            <thead className="text-left text-xs uppercase">
+              <tr>{['Report Run', 'Status', 'Rows', 'Format', 'Owner', 'Amount', 'Message', 'Action'].map((head) => <th key={head} className="px-3 py-2">{head}</th>)}</tr>
+            </thead>
+            <tbody>
+              {rows.map((run) => (
+                <tr key={run.id}>
+                  <td className="px-3 py-3 font-bold text-[#006bb6]">{run.id}</td>
+                  <td className="px-3 py-3"><Status value={run.status} /></td>
+                  <td className="px-3 py-3">{run.rows}</td>
+                  <td className="px-3 py-3">{run.format}</td>
+                  <td className="px-3 py-3">{run.owner}</td>
+                  <td className="px-3 py-3">{new Intl.NumberFormat('en-IN').format(run.totalAmount)}</td>
+                  <td className="px-3 py-3">{run.message}</td>
+                  <td className="px-3 py-3">
+                    <div className="flex gap-2">
+                      <button onClick={() => transition(run, 'Processing')} className="rounded-sm border border-[#a6c9e2] px-2 py-1 text-xs text-[#006bb6]">Run</button>
+                      <button onClick={() => transition(run, 'Generated')} className="rounded-sm bg-[#00a65a] px-2 py-1 text-xs text-white">Generate</button>
+                      <button onClick={() => exportRun(run)} className="rounded-sm bg-[#3c8dbc] px-2 py-1 text-xs text-white">Export</button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {!rows.length ? <tr><td colSpan={8} className="px-3 py-8 text-center text-[#777]">No report runs found</td></tr> : null}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
 }

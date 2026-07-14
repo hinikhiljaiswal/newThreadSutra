@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
-import { IsIn, IsNumber, IsOptional, IsString, Min } from 'class-validator';
+import { ArrayNotEmpty, IsArray, IsIn, IsNumber, IsOptional, IsString, Min } from 'class-validator';
 import { DatabaseService } from '../common/database.service';
 import { AuthGuard } from '../auth/auth.guard';
 
@@ -41,6 +41,16 @@ class UpdateOrderDto {
   sla?: string;
 }
 
+class BulkOrderStatusDto {
+  @IsArray()
+  @ArrayNotEmpty()
+  @IsString({ each: true })
+  ids!: string[];
+
+  @IsIn(statuses)
+  status!: (typeof statuses)[number];
+}
+
 @Controller('orders')
 @UseGuards(AuthGuard)
 export class OrdersController {
@@ -54,6 +64,11 @@ export class OrdersController {
   @Post()
   create(@Body() dto: CreateOrderDto) {
     return this.db.createOrder(dto);
+  }
+
+  @Patch('bulk/status')
+  bulkStatus(@Body() dto: BulkOrderStatusDto) {
+    return this.db.bulkUpdateOrders(dto.ids, { status: dto.status });
   }
 
   @Patch(':id')

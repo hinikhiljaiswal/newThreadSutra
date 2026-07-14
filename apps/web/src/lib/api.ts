@@ -19,6 +19,8 @@ export type Metric = { label: string; value: number; tone: string; currency?: bo
 export type Order = { id: string; channel: string; customer: string; status: string; items: number; value: number; city: string; sla: string };
 export type InventoryItem = { sku: string; name: string; location: string; available: number; allocated: number; reorder: number };
 export type OperationRecord = { id: string; module: string; type: string; name: string; status: string; location: string; owner: string; amount: number; quantity: number };
+export type ImportJob = { id: string; type: string; fileName: string; status: string; rows: number; successRows: number; failedRows: number; owner: string; message: string };
+export type ReportRun = { id: string; type: string; status: string; rows: number; owner: string; format: string; totalAmount: number; message: string };
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const token = typeof window === 'undefined' ? '' : window.localStorage.getItem('eretail-token');
@@ -50,6 +52,11 @@ export const api = {
     }),
   updateOrder: (id: string, body: Partial<Pick<Order, 'status' | 'sla'>>) =>
     request<Order>(`/orders/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+  bulkUpdateOrders: (body: { ids: string[]; status: string }) =>
+    request<{ updated: number }>('/orders/bulk/status', {
       method: 'PATCH',
       body: JSON.stringify(body),
     }),
@@ -87,4 +94,34 @@ export const api = {
       body: JSON.stringify(body),
     }),
   deleteOperation: (id: string) => request<{ deleted: boolean }>(`/operations/${id}`, { method: 'DELETE' }),
+  imports: (params?: { type?: string }) => {
+    const query = new URLSearchParams();
+    if (params?.type) query.set('type', params.type);
+    return request<ImportJob[]>(`/imports${query.toString() ? `?${query}` : ''}`);
+  },
+  createImport: (body: { type: string; fileName: string; rows: number; owner: string; message?: string }) =>
+    request<ImportJob>('/imports', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  updateImport: (id: string, body: Partial<Pick<ImportJob, 'status' | 'successRows' | 'failedRows' | 'message'>>) =>
+    request<ImportJob>(`/imports/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+  reports: (params?: { type?: string }) => {
+    const query = new URLSearchParams();
+    if (params?.type) query.set('type', params.type);
+    return request<ReportRun[]>(`/reports${query.toString() ? `?${query}` : ''}`);
+  },
+  createReport: (body: { type: string; rows: number; owner: string; format: string; totalAmount?: number; message?: string }) =>
+    request<ReportRun>('/reports', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  updateReport: (id: string, body: Partial<Pick<ReportRun, 'status' | 'rows' | 'format' | 'totalAmount' | 'message'>>) =>
+    request<ReportRun>(`/reports/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
 };

@@ -1,8 +1,8 @@
 import { Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Model, connect, model, models } from 'mongoose';
-import { inventory, operationRecords, orders } from './data';
-import { inventorySchema, operationSchema, orderSchema } from './schemas';
+import { importJobs, inventory, operationRecords, orders, reportRuns } from './data';
+import { importJobSchema, inventorySchema, operationSchema, orderSchema, reportRunSchema } from './schemas';
 
 export type OrderStatus = 'Pending Pick' | 'Allocated' | 'Packed' | 'Ready to Ship' | 'Shipped' | 'Cancelled' | 'Exception';
 export type Order = (typeof orders)[number] & { createdAt?: Date; updatedAt?: Date };
@@ -14,6 +14,12 @@ export type UpdateInventoryInput = Partial<CreateInventoryInput> & { adjustment?
 export type OperationRecord = (typeof operationRecords)[number] & { createdAt?: Date; updatedAt?: Date };
 export type CreateOperationInput = Omit<OperationRecord, 'id' | 'amount' | 'quantity' | 'createdAt' | 'updatedAt'> & { id?: string; amount?: number; quantity?: number };
 export type UpdateOperationInput = Partial<CreateOperationInput>;
+export type ImportJob = (typeof importJobs)[number] & { createdAt?: Date; updatedAt?: Date };
+export type CreateImportJobInput = Omit<ImportJob, 'id' | 'status' | 'successRows' | 'failedRows' | 'message' | 'createdAt' | 'updatedAt'> & { id?: string; status?: string; successRows?: number; failedRows?: number; message?: string };
+export type UpdateImportJobInput = Partial<Omit<ImportJob, 'id' | 'type' | 'fileName' | 'rows' | 'owner' | 'createdAt' | 'updatedAt'>>;
+export type ReportRun = (typeof reportRuns)[number] & { createdAt?: Date; updatedAt?: Date };
+export type CreateReportRunInput = Omit<ReportRun, 'id' | 'status' | 'message' | 'totalAmount' | 'createdAt' | 'updatedAt'> & { id?: string; status?: string; message?: string; totalAmount?: number };
+export type UpdateReportRunInput = Partial<Omit<ReportRun, 'id' | 'type' | 'createdAt' | 'updatedAt'>>;
 
 @Injectable()
 export class DatabaseService implements OnModuleInit {
@@ -21,10 +27,14 @@ export class DatabaseService implements OnModuleInit {
   private orderModel?: Model<Order>;
   private inventoryModel?: Model<InventoryItem>;
   private operationModel?: Model<OperationRecord>;
+  private importJobModel?: Model<ImportJob>;
+  private reportRunModel?: Model<ReportRun>;
   private ready = false;
   private memoryOrders: Order[] = orders.map((order) => ({ ...order }));
   private memoryInventory: InventoryItem[] = inventory.map((item) => ({ ...item }));
   private memoryOperations: OperationRecord[] = operationRecords.map((record) => ({ ...record }));
+  private memoryImportJobs: ImportJob[] = importJobs.map((job) => ({ ...job }));
+  private memoryReportRuns: ReportRun[] = reportRuns.map((run) => ({ ...run }));
 
   constructor(private readonly config: ConfigService) {}
 
@@ -40,6 +50,8 @@ export class DatabaseService implements OnModuleInit {
       this.orderModel = (models.Order as Model<Order>) ?? model<Order>('Order', orderSchema);
       this.inventoryModel = (models.InventoryItem as Model<InventoryItem>) ?? model<InventoryItem>('InventoryItem', inventorySchema);
       this.operationModel = (models.OperationRecord as Model<OperationRecord>) ?? model<OperationRecord>('OperationRecord', operationSchema);
+      this.importJobModel = (models.ImportJob as Model<ImportJob>) ?? model<ImportJob>('ImportJob', importJobSchema);
+      this.reportRunModel = (models.ReportRun as Model<ReportRun>) ?? model<ReportRun>('ReportRun', reportRunSchema);
       await this.seed();
       this.ready = true;
       this.logger.log('MongoDB connected, indexed, and seeded.');
@@ -78,6 +90,21 @@ export class DatabaseService implements OnModuleInit {
     const order = await this.orderModel.findOneAndUpdate({ id }, input, { new: true }).lean();
     if (!order) throw new NotFoundException(`Order ${id} not found`);
     return order;
+  }
+
+  async bulkUpdateOrders(ids: string[], input: UpdateOrderInput) {
+    if (!ids.length) return { updated: 0 };
+    if (!this.ready || !this.orderModel) {
+      let updated = 0;
+      this.memoryOrders = this.memoryOrders.map((order) => {
+        if (!ids.includes(order.id)) return order;
+        updated += 1;
+        return { ...order, ...input };
+      });
+      return { updated };
+    }
+    const result = await this.orderModel.updateMany({ id: { $in: ids } }, input);
+    return { updated: result.modifiedCount };
   }
 
   async deleteOrder(id: string) {
@@ -183,11 +210,81 @@ export class DatabaseService implements OnModuleInit {
     return { deleted: true };
   }
 
+  async getImportJobs(type?: string) {
+    if (!this.ready || !this.importJobModel) return type ? this.memoryImportJobs.filter((job) => job.type === type) : this.memoryImportJobs;
+    const query = type ? { type } : {};
+    return this.importJobModel.find(query).sort({ createdAt: -1, id: -1 }).lean();
+  }
+
+  async createImportJob(input: CreateImportJobInput) {
+    const job = {
+      ...input,
+      id: input.id || `IMP-${Date.now().toString().slice(-6)}`,
+      status: input.status || 'Queued',
+      successRows: Number(input.successRows || 0),
+      failedRows: Number(input.failedRows || 0),
+      message: input.message || 'Import queued for validation',
+    };
+    if (!this.ready || !this.importJobModel) {
+      this.memoryImportJobs = [job, ...this.memoryImportJobs];
+      return job;
+    }
+    return this.importJobModel.create(job);
+  }
+
+  async updateImportJob(id: string, input: UpdateImportJobInput) {
+    if (!this.ready || !this.importJobModel) {
+      const index = this.memoryImportJobs.findIndex((job) => job.id === id);
+      if (index < 0) throw new NotFoundException(`Import job ${id} not found`);
+      this.memoryImportJobs[index] = { ...this.memoryImportJobs[index], ...input };
+      return this.memoryImportJobs[index];
+    }
+    const job = await this.importJobModel.findOneAndUpdate({ id }, input, { new: true }).lean();
+    if (!job) throw new NotFoundException(`Import job ${id} not found`);
+    return job;
+  }
+
+  async getReportRuns(type?: string) {
+    if (!this.ready || !this.reportRunModel) return type ? this.memoryReportRuns.filter((run) => run.type === type) : this.memoryReportRuns;
+    const query = type ? { type } : {};
+    return this.reportRunModel.find(query).sort({ createdAt: -1, id: -1 }).lean();
+  }
+
+  async createReportRun(input: CreateReportRunInput) {
+    const run = {
+      ...input,
+      id: input.id || `REP-${Date.now().toString().slice(-6)}`,
+      status: input.status || 'Queued',
+      message: input.message || 'Report queued for generation',
+      totalAmount: Number(input.totalAmount || 0),
+      rows: Number(input.rows || 0),
+    };
+    if (!this.ready || !this.reportRunModel) {
+      this.memoryReportRuns = [run, ...this.memoryReportRuns];
+      return run;
+    }
+    return this.reportRunModel.create(run);
+  }
+
+  async updateReportRun(id: string, input: UpdateReportRunInput) {
+    if (!this.ready || !this.reportRunModel) {
+      const index = this.memoryReportRuns.findIndex((run) => run.id === id);
+      if (index < 0) throw new NotFoundException(`Report run ${id} not found`);
+      this.memoryReportRuns[index] = { ...this.memoryReportRuns[index], ...input };
+      return this.memoryReportRuns[index];
+    }
+    const run = await this.reportRunModel.findOneAndUpdate({ id }, input, { new: true }).lean();
+    if (!run) throw new NotFoundException(`Report run ${id} not found`);
+    return run;
+  }
+
   private async seed() {
-    if (!this.orderModel || !this.inventoryModel || !this.operationModel) return;
-    await Promise.all([this.orderModel.syncIndexes(), this.inventoryModel.syncIndexes(), this.operationModel.syncIndexes()]);
+    if (!this.orderModel || !this.inventoryModel || !this.operationModel || !this.importJobModel || !this.reportRunModel) return;
+    await Promise.all([this.orderModel.syncIndexes(), this.inventoryModel.syncIndexes(), this.operationModel.syncIndexes(), this.importJobModel.syncIndexes(), this.reportRunModel.syncIndexes()]);
     await Promise.all(orders.map((order) => this.orderModel!.updateOne({ id: order.id }, { $setOnInsert: order }, { upsert: true })));
     await Promise.all(inventory.map((item) => this.inventoryModel!.updateOne({ sku: item.sku }, { $setOnInsert: item }, { upsert: true })));
     await Promise.all(operationRecords.map((record) => this.operationModel!.updateOne({ id: record.id }, { $setOnInsert: record }, { upsert: true })));
+    await Promise.all(importJobs.map((job) => this.importJobModel!.updateOne({ id: job.id }, { $setOnInsert: job }, { upsert: true })));
+    await Promise.all(reportRuns.map((run) => this.reportRunModel!.updateOne({ id: run.id }, { $setOnInsert: run }, { upsert: true })));
   }
 }

@@ -40,3 +40,17 @@ export const operationRecords = [
   { id: 'RPT-100', module: 'reports', type: 'Sales Register', name: 'Sales Register - Last 7 days', status: 'Generated', location: 'JX Karawaci', owner: 'Finance', amount: 141500, quantity: 15 },
   { id: 'RPT-220', module: 'reports', type: 'Manifest Report', name: 'Manifest Report - Today', status: 'Generated', location: 'Shipping Dock', owner: 'Outbound', amount: 0, quantity: 6 },
 ];
+
+export const importJobs = [
+  { id: 'IMP-9001', type: 'Order Import', fileName: 'marketplace-orders.csv', status: 'Completed', rows: 42, successRows: 40, failedRows: 2, owner: 'Operations', message: '2 rows failed SKU validation' },
+  { id: 'IMP-9002', type: 'Common Import', fileName: 'tax-zone-master.csv', status: 'Processing', rows: 18, successRows: 12, failedRows: 0, owner: 'Admin', message: 'Validation completed, posting rows' },
+  { id: 'IMP-9003', type: 'SKU Import', fileName: 'new-season-skus.csv', status: 'Queued', rows: 64, successRows: 0, failedRows: 0, owner: 'Merchandising', message: 'Awaiting processing slot' },
+  { id: 'IMP-9004', type: 'Bulk Upload MP Inventory Log', fileName: 'marketplace-inventory.csv', status: 'Failed', rows: 31, successRows: 25, failedRows: 6, owner: 'Warehouse', message: '6 bins not found' },
+];
+
+export const reportRuns = [
+  { id: 'REP-7001', type: 'Sales Register', status: 'Generated', rows: 15, owner: 'Finance', format: 'CSV', totalAmount: 196013, message: 'Sales register generated for last 7 days' },
+  { id: 'REP-7002', type: 'Manifest Report', status: 'Generated', rows: 6, owner: 'Outbound', format: 'CSV', totalAmount: 0, message: 'Carrier manifest generated for today' },
+  { id: 'REP-7003', type: 'Fin Inv Report - By SKU', status: 'Queued', rows: 5, owner: 'Inventory', format: 'XLS', totalAmount: 0, message: 'Awaiting inventory snapshot' },
+  { id: 'REP-7004', type: 'Pick Pack Report', status: 'Processing', rows: 9, owner: 'Warehouse', format: 'CSV', totalAmount: 0, message: 'Compiling pick/pack productivity' },
+];
