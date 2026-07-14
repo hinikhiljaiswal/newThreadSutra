@@ -54,3 +54,26 @@ export const reportRuns = [
   { id: 'REP-7003', type: 'Fin Inv Report - By SKU', status: 'Queued', rows: 5, owner: 'Inventory', format: 'XLS', totalAmount: 0, message: 'Awaiting inventory snapshot' },
   { id: 'REP-7004', type: 'Pick Pack Report', status: 'Processing', rows: 9, owner: 'Warehouse', format: 'CSV', totalAmount: 0, message: 'Compiling pick/pack productivity' },
 ];
+
+export const returnCases = [
+  { id: 'RTN-10291', type: 'Return Enquiry', orderId: 'SO-10291', customer: 'Aarav Textiles', city: 'Mumbai', status: 'Return Initiated', reason: 'Size mismatch', disposition: 'QC Pending', quantity: 2, refundAmount: 4620, owner: 'Returns Team', dock: 'Returns Dock' },
+  { id: 'RTN-10295', type: 'Return Enquiry', orderId: 'SO-10295', customer: 'Kolkata Central', city: 'Kolkata', status: 'QC Pending', reason: 'Damaged in transit', disposition: 'Replace', quantity: 5, refundAmount: 13990, owner: 'Returns Team', dock: 'Returns Dock' },
+  { id: 'RTV-5007', type: 'RTV Enquiry', orderId: 'PO-50018', customer: 'ThreadSutra Vendor 1', city: 'JX Karawaci', status: 'Vendor Review', reason: 'Excess receipt', disposition: 'Return to Vendor', quantity: 12, refundAmount: 0, owner: 'Inbound QC', dock: 'Inbound Dock' },
+  { id: 'STO-4311', type: 'STO Order Enquiry', orderId: 'STO-4311', customer: 'Marketplace Hub', city: 'Delhi', status: 'Open', reason: 'Hub replenishment', disposition: 'Transfer', quantity: 32, refundAmount: 0, owner: 'Transfer Desk', dock: 'Main Warehouse' },
+];
+
+export const masterData = [
+  { id: 'VEN-1001', type: 'Vendor Master', code: 'VEN-1001', name: 'ThreadSutra Vendor 1', category: 'Apparel Supplier', status: 'Active', location: 'JX Karawaci', contact: 'vendor1@threadsutra.test', owner: 'Buying Team', balance: 48200 },
+  { id: 'VEN-1002', type: 'Vendor Master', code: 'VEN-1002', name: 'Indigo Loom Works', category: 'Fabric Supplier', status: 'On Hold', location: 'Jaipur', contact: 'accounts@indigoloom.test', owner: 'Buying Team', balance: 12600 },
+  { id: 'CUS-2201', type: 'Customer Master', code: 'CUS-2201', name: 'Aarav Textiles', category: 'B2B', status: 'Active', location: 'Mumbai', contact: 'orders@aarav.test', owner: 'Sales Team', balance: 18420 },
+  { id: 'CUS-2202', type: 'Customer Master', code: 'CUS-2202', name: 'Northstar Retail', category: 'Retail Chain', status: 'Active', location: 'Delhi', contact: 'ops@northstar.test', owner: 'Sales Team', balance: 74200 },
+  { id: 'TAX-018', type: 'Tax Code', code: 'GST-APP-5', name: 'GST Apparel 5%', category: 'GST', status: 'Active', location: 'India', contact: 'finance@threadsutra.test', owner: 'Finance', balance: 5 },
+  { id: 'TRN-014', type: 'Transporter Master', code: 'TRN-014', name: 'BlueDart Express', category: 'Courier', status: 'Active', location: 'India', contact: 'pickup@bluedart.test', owner: 'Logistics', balance: 0 },
+];
+
+export const procurementDocs = [
+  { id: 'PO-50018', type: 'PO Create/Edit', documentNo: 'PO-50018', vendor: 'ThreadSutra Vendor 1', location: 'JX Karawaci', status: 'Open', items: 120, value: 48200, expectedDate: '2026-07-18', owner: 'Buyer A', asnNo: 'ASN-70012', receivedQty: 0 },
+  { id: 'PO-50019', type: 'PO Enquiry', documentNo: 'PO-50019', vendor: 'Indigo Loom Works', location: 'Jaipur', status: 'Approved', items: 80, value: 33600, expectedDate: '2026-07-21', owner: 'Buyer B', asnNo: '', receivedQty: 0 },
+  { id: 'ASN-70012', type: 'Manage ASN', documentNo: 'ASN-70012', vendor: 'ThreadSutra Vendor 1', location: 'JX Karawaci', status: 'ASN Created', items: 120, value: 48200, expectedDate: '2026-07-18', owner: 'Inbound Team', asnNo: 'ASN-70012', receivedQty: 48 },
+  { id: 'INB-8107', type: 'Inbound Enquiry', documentNo: 'INB-8107', vendor: 'ThreadSutra Vendor 1', location: 'Inbound Dock', status: 'QC Pending', items: 48, value: 19280, expectedDate: '2026-07-14', owner: 'Inbound QC', asnNo: 'ASN-70012', receivedQty: 48 },
+];

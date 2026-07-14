@@ -22,7 +22,7 @@ import {
   User,
   Warehouse,
 } from 'lucide-react';
-import { api, ImportJob, InventoryItem, Metric, OperationRecord, Order, ReportRun } from '@/lib/api';
+import { api, ImportJob, InventoryItem, MasterDataRecord, Metric, OperationRecord, Order, ProcurementDoc, ReportRun, ReturnCase } from '@/lib/api';
 
 type Session = { displayName: string; role: string; organization: string; username: string };
 type ModuleKey = 'dashboard' | 'master' | 'procurement' | 'sales' | 'wms' | 'returns' | 'inventory' | 'warehouse' | 'shipping' | 'reports' | 'admin';
@@ -646,11 +646,14 @@ function OpenedScreen({ screen, orders, inventory, onRefresh, setMessage }: { sc
   if (lower.includes('sku') && !lower.includes('wise')) {
     return <SkuScreen title={title} inventory={inventory} onRefresh={onRefresh} setMessage={setMessage} />;
   }
+  if (screen.module === 'master') {
+    return <MasterDataScreen title={title} setMessage={setMessage} />;
+  }
   if (lower.includes('inventory') || lower.includes('bin') || lower.includes('lpn')) {
     return <InventoryOperationScreen title={title} inventory={inventory} onRefresh={onRefresh} setMessage={setMessage} />;
   }
   if (lower.includes('return') || lower.includes('rtv') || lower.includes('sto')) {
-    return <ReturnOperationScreen title={title} orders={orders} />;
+    return <ReturnOperationScreen title={title} orders={orders} setMessage={setMessage} />;
   }
   if (lower.includes('user') || lower.includes('api') || lower.includes('log') || lower.includes('setting')) {
     return <AdminOperationScreen title={title} />;
@@ -658,8 +661,8 @@ function OpenedScreen({ screen, orders, inventory, onRefresh, setMessage }: { sc
   if (lower.includes('report') || lower.includes('register') || lower.includes('invoice') || lower.includes('manifest')) {
     return <ReportOperationScreen title={title} orders={orders} inventory={inventory} setMessage={setMessage} />;
   }
-  if (lower.includes('po') || lower.includes('asn') || lower.includes('vendor')) {
-    return <ProcurementOperationScreen title={title} />;
+  if (lower.includes('po') || lower.includes('asn') || lower.includes('vendor') || lower.includes('inbound')) {
+    return <ProcurementOperationScreen title={title} setMessage={setMessage} />;
   }
   return <GenericOperationScreen title={title} module={screen.module} />;
 }
@@ -1013,12 +1016,289 @@ function InventoryOperationScreen({ title, inventory, onRefresh, setMessage }: {
   );
 }
 
-function ReturnOperationScreen({ title, orders }: { title: string; orders: Order[] }) {
+function ReturnOperationScreen({ title, orders, setMessage }: { title: string; orders: Order[]; setMessage: (message: string) => void }) {
+  const firstOrder = orders[0];
+  const [cases, setCases] = useState<ReturnCase[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [filter, setFilter] = useState('');
+  const [form, setForm] = useState({
+    orderId: firstOrder?.id ?? 'SO-NEW',
+    customer: firstOrder?.customer ?? '',
+    city: firstOrder?.city ?? '',
+    reason: title.toLowerCase().includes('sto') ? 'Hub replenishment' : 'Customer return',
+    disposition: title.toLowerCase().includes('sto') ? 'Transfer' : title.toLowerCase().includes('rtv') ? 'Return to Vendor' : 'QC Pending',
+    quantity: 1,
+    refundAmount: firstOrder ? Math.round(firstOrder.value / Math.max(firstOrder.items, 1)) : 0,
+    owner: title.toLowerCase().includes('sto') ? 'Transfer Desk' : 'Returns Team',
+    dock: title.toLowerCase().includes('sto') ? 'Main Warehouse' : 'Returns Dock',
+  });
+  const visibleCases = cases.filter((item) => [item.id, item.orderId, item.customer, item.city, item.status, item.reason, item.disposition, item.owner, item.dock].join(' ').toLowerCase().includes(filter.toLowerCase()));
+  const qcPending = cases.filter((item) => ['Return Initiated', 'QC Pending', 'Vendor Review', 'Open'].includes(item.status)).length;
+  const refundTotal = cases.reduce((sum, item) => sum + item.refundAmount, 0);
+  const qtyTotal = cases.reduce((sum, item) => sum + item.quantity, 0);
+
+  useEffect(() => {
+    void load();
+  }, [title]);
+
+  async function load() {
+    setBusy(true);
+    try {
+      const exact = await api.returns({ type: title });
+      const all = exact.length ? exact : await api.returns();
+      setCases(all.filter((item) => item.type === title || !exact.length));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function createCase(event: React.FormEvent) {
+    event.preventDefault();
+    const item = await api.createReturn({
+      type: title,
+      status: title.toLowerCase().includes('sto') ? 'Open' : 'Return Initiated',
+      ...form,
+      quantity: Number(form.quantity || 0),
+      refundAmount: Number(form.refundAmount || 0),
+    });
+    setMessage(`${item.id} created`);
+    await load();
+  }
+
+  async function transition(item: ReturnCase, status: string) {
+    const disposition = status === 'Closed' ? 'Closed' : status === 'Refund Pending' ? 'Refund' : item.disposition;
+    await api.updateReturn(item.id, { status, disposition });
+    setMessage(`${item.id} moved to ${status}`);
+    await load();
+  }
+
+  function useOrder(orderId: string) {
+    const order = orders.find((item) => item.id === orderId);
+    if (!order) return;
+    setForm({
+      ...form,
+      orderId: order.id,
+      customer: order.customer,
+      city: order.city,
+      refundAmount: Math.round(order.value / Math.max(order.items, 1)),
+    });
+  }
+
+  function exportCases() {
+    const header = ['Return No', 'Type', 'Order', 'Customer', 'City', 'Status', 'Reason', 'Disposition', 'Qty', 'Refund', 'Owner', 'Dock'];
+    const csv = [header, ...visibleCases.map((item) => [item.id, item.type, item.orderId, item.customer, item.city, item.status, item.reason, item.disposition, item.quantity, item.refundAmount, item.owner, item.dock])]
+      .map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(','))
+      .join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${title.replaceAll(' ', '_')}_returns.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
   return (
-    <ScreenShell title={title} actions={<button className="rounded-sm bg-[#ff9800] px-3 py-1 text-xs font-bold text-white">Create Return</button>}>
+    <ScreenShell title={title} actions={<button onClick={exportCases} className="rounded-sm bg-[#00a65a] px-3 py-1 text-xs font-bold text-white">Export CSV</button>}>
       <SearchForm fields={['Return No', 'Order No', 'AWB No', 'Customer', 'From Date', 'To Date', 'Status']} />
-      <ReturnsModule orders={orders} />
+      <div className="grid gap-3 xl:grid-cols-[360px_1fr]">
+        <Panel title={title.toLowerCase().includes('sto') ? 'Create STO Transfer' : title.toLowerCase().includes('rtv') ? 'Create Vendor Return' : 'Create Return'}>
+          <form onSubmit={createCase} className="space-y-3">
+            <Select label="Source Order" value={form.orderId} options={[...new Set([form.orderId, ...orders.map((order) => order.id)])]} onChange={useOrder} />
+            <Input label="Customer / Vendor" value={form.customer} onChange={(customer) => setForm({ ...form, customer })} />
+            <div className="grid grid-cols-2 gap-3">
+              <Input label="City" value={form.city} onChange={(city) => setForm({ ...form, city })} />
+              <Input label="Dock" value={form.dock} onChange={(dock) => setForm({ ...form, dock })} />
+            </div>
+            <Input label="Reason" value={form.reason} onChange={(reason) => setForm({ ...form, reason })} />
+            <Select label="Disposition" value={form.disposition} options={['QC Pending', 'Replace', 'Refund', 'Return to Vendor', 'Transfer', 'Closed']} onChange={(disposition) => setForm({ ...form, disposition })} />
+            <div className="grid grid-cols-2 gap-3">
+              <NumberInput label="Quantity" value={form.quantity} onChange={(quantity) => setForm({ ...form, quantity })} />
+              <NumberInput label="Refund Amount" value={form.refundAmount} onChange={(refundAmount) => setForm({ ...form, refundAmount })} />
+            </div>
+            <Input label="Owner" value={form.owner} onChange={(owner) => setForm({ ...form, owner })} />
+            <button className="h-9 w-full rounded-sm bg-[#ff9800] text-xs font-bold text-white">Save Case</button>
+          </form>
+        </Panel>
+        <div>
+          <div className="mb-3 grid gap-2 md:grid-cols-4">
+            <ReportCard label="Total Cases" value={cases.length.toString()} />
+            <ReportCard label="Pending Work" value={qcPending.toString()} />
+            <ReportCard label="Total Qty" value={qtyTotal.toString()} />
+            <ReportCard label="Refund Value" value={new Intl.NumberFormat('en-IN').format(refundTotal)} />
+          </div>
+          <div className="mb-2 flex items-center justify-between gap-2 border border-[#d5e3ef] bg-[#fbfdff] px-3 py-2">
+            <span className="text-xs font-bold text-[#555]">{visibleCases.length} case(s)</span>
+            <input value={filter} onChange={(event) => setFilter(event.target.value)} className="h-8 w-64 border border-[#bfc4c8] px-2 text-xs outline-none focus:border-[#3c8dbc]" placeholder="Filter returns, customer, status" />
+          </div>
+          <div className="overflow-x-auto">
+            <table className="vin-grid w-full min-w-[1120px] border-collapse text-sm">
+              <thead className="text-left text-xs uppercase">
+                <tr>{['Return No', 'Order / STO', 'Customer', 'City', 'Status', 'Reason', 'Disposition', 'Qty', 'Refund', 'Owner', 'Dock', 'Action'].map((head) => <th key={head} className="px-3 py-2">{head}</th>)}</tr>
+              </thead>
+              <tbody>
+                {visibleCases.map((item) => (
+                  <tr key={item.id}>
+                    <td className="px-3 py-3 font-bold text-[#006bb6]">{item.id}</td>
+                    <td className="px-3 py-3">{item.orderId}</td>
+                    <td className="px-3 py-3">{item.customer}</td>
+                    <td className="px-3 py-3">{item.city}</td>
+                    <td className="px-3 py-3"><Status value={item.status} /></td>
+                    <td className="px-3 py-3">{item.reason}</td>
+                    <td className="px-3 py-3">{item.disposition}</td>
+                    <td className="px-3 py-3">{item.quantity}</td>
+                    <td className="px-3 py-3">{new Intl.NumberFormat('en-IN').format(item.refundAmount)}</td>
+                    <td className="px-3 py-3">{item.owner}</td>
+                    <td className="px-3 py-3">{item.dock}</td>
+                    <td className="px-3 py-3">
+                      <div className="flex flex-wrap gap-2">
+                        <button onClick={() => transition(item, 'QC Pending')} className="rounded-sm border border-[#a6c9e2] px-2 py-1 text-xs text-[#006bb6]">QC</button>
+                        <button onClick={() => transition(item, 'Refund Pending')} className="rounded-sm bg-[#3c8dbc] px-2 py-1 text-xs text-white">Refund</button>
+                        <button onClick={() => transition(item, 'Closed')} className="rounded-sm bg-[#00a65a] px-2 py-1 text-xs text-white">Close</button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {!visibleCases.length ? <tr><td colSpan={12} className="px-3 py-8 text-center text-[#777]">{busy ? 'Loading...' : 'No return cases found'}</td></tr> : null}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
       <OperationGrid module="returns" type={title} />
+    </ScreenShell>
+  );
+}
+
+function MasterDataScreen({ title, setMessage }: { title: string; setMessage: (message: string) => void }) {
+  const lower = title.toLowerCase();
+  const [records, setRecords] = useState<MasterDataRecord[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [filter, setFilter] = useState('');
+  const [form, setForm] = useState({
+    code: lower.includes('customer') ? 'CUS-NEW' : lower.includes('tax') ? 'TAX-NEW' : lower.includes('transport') ? 'TRN-NEW' : 'VEN-NEW',
+    name: '',
+    category: lower.includes('tax') ? 'GST' : lower.includes('customer') ? 'B2B' : lower.includes('transport') ? 'Courier' : 'Apparel Supplier',
+    status: 'Active',
+    location: 'JX Karawaci',
+    contact: 'ops@threadsutra.test',
+    owner: lower.includes('tax') ? 'Finance' : lower.includes('customer') ? 'Sales Team' : lower.includes('transport') ? 'Logistics' : 'Buying Team',
+    balance: 0,
+  });
+  const rows = records.filter((record) => [record.id, record.code, record.name, record.category, record.status, record.location, record.contact, record.owner].join(' ').toLowerCase().includes(filter.toLowerCase()));
+  const active = records.filter((record) => record.status === 'Active').length;
+  const onHold = records.filter((record) => record.status === 'On Hold').length;
+  const totalBalance = records.reduce((sum, record) => sum + record.balance, 0);
+
+  useEffect(() => {
+    void load();
+  }, [title]);
+
+  async function load() {
+    setBusy(true);
+    try {
+      const exact = await api.masterData({ type: title });
+      const all = exact.length ? exact : await api.masterData();
+      setRecords(all.filter((record) => record.type === title || !exact.length));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function createRecord(event: React.FormEvent) {
+    event.preventDefault();
+    const record = await api.createMasterData({ type: title, ...form, balance: Number(form.balance || 0) });
+    setMessage(`${record.id} saved`);
+    setForm({ ...form, code: form.code.includes('NEW') ? form.code : `${form.code}-COPY`, name: '', balance: 0 });
+    await load();
+  }
+
+  async function changeStatus(record: MasterDataRecord, status: string) {
+    await api.updateMasterData(record.id, { status });
+    setMessage(`${record.code} marked ${status}`);
+    await load();
+  }
+
+  function exportRows() {
+    const header = ['ID', 'Type', 'Code', 'Name', 'Category', 'Status', 'Location', 'Contact', 'Owner', 'Balance'];
+    const csv = [header, ...rows.map((record) => [record.id, record.type, record.code, record.name, record.category, record.status, record.location, record.contact, record.owner, record.balance])]
+      .map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(','))
+      .join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${title.replaceAll(' ', '_')}_master.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  return (
+    <ScreenShell title={title} actions={<button onClick={exportRows} className="rounded-sm bg-[#00a65a] px-3 py-1 text-xs font-bold text-white">Export CSV</button>}>
+      <SearchForm fields={['Code', 'Name', 'Category', 'Location', 'Status', 'Created From', 'Created To']} />
+      <div className="grid gap-3 xl:grid-cols-[360px_1fr]">
+        <Panel title="Create / Edit Master">
+          <form onSubmit={createRecord} className="space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <Input label="Code" value={form.code} onChange={(code) => setForm({ ...form, code })} />
+              <Select label="Status" value={form.status} options={['Active', 'On Hold', 'Pending', 'Archived']} onChange={(status) => setForm({ ...form, status })} />
+            </div>
+            <Input label="Name" value={form.name} onChange={(name) => setForm({ ...form, name })} />
+            <div className="grid grid-cols-2 gap-3">
+              <Input label="Category" value={form.category} onChange={(category) => setForm({ ...form, category })} />
+              <Input label="Location" value={form.location} onChange={(location) => setForm({ ...form, location })} />
+            </div>
+            <Input label="Contact" value={form.contact} onChange={(contact) => setForm({ ...form, contact })} />
+            <div className="grid grid-cols-2 gap-3">
+              <Input label="Owner" value={form.owner} onChange={(owner) => setForm({ ...form, owner })} />
+              <NumberInput label={lower.includes('tax') ? 'Tax Rate' : 'Opening Balance'} value={form.balance} onChange={(balance) => setForm({ ...form, balance })} />
+            </div>
+            <button className="h-9 w-full rounded-sm bg-[#ff9800] text-xs font-bold text-white">Save Master</button>
+          </form>
+        </Panel>
+        <div>
+          <div className="mb-3 grid gap-2 md:grid-cols-4">
+            <ReportCard label="Records" value={records.length.toString()} />
+            <ReportCard label="Active" value={active.toString()} />
+            <ReportCard label="On Hold" value={onHold.toString()} />
+            <ReportCard label={lower.includes('tax') ? 'Rate / Value' : 'Balance'} value={new Intl.NumberFormat('en-IN').format(totalBalance)} />
+          </div>
+          <div className="mb-2 flex items-center justify-between gap-2 border border-[#d5e3ef] bg-[#fbfdff] px-3 py-2">
+            <span className="text-xs font-bold text-[#555]">{rows.length} record(s)</span>
+            <input value={filter} onChange={(event) => setFilter(event.target.value)} className="h-8 w-64 border border-[#bfc4c8] px-2 text-xs outline-none focus:border-[#3c8dbc]" placeholder="Filter code, name, owner" />
+          </div>
+          <div className="overflow-x-auto">
+            <table className="vin-grid w-full min-w-[1080px] border-collapse text-sm">
+              <thead className="text-left text-xs uppercase">
+                <tr>{['Code', 'Name', 'Category', 'Status', 'Location', 'Contact', 'Owner', 'Balance', 'Action'].map((head) => <th key={head} className="px-3 py-2">{head}</th>)}</tr>
+              </thead>
+              <tbody>
+                {rows.map((record) => (
+                  <tr key={record.id}>
+                    <td className="px-3 py-3 font-bold text-[#006bb6]">{record.code}</td>
+                    <td className="px-3 py-3">{record.name}</td>
+                    <td className="px-3 py-3">{record.category}</td>
+                    <td className="px-3 py-3"><Status value={record.status} /></td>
+                    <td className="px-3 py-3">{record.location}</td>
+                    <td className="px-3 py-3">{record.contact}</td>
+                    <td className="px-3 py-3">{record.owner}</td>
+                    <td className="px-3 py-3">{new Intl.NumberFormat('en-IN').format(record.balance)}</td>
+                    <td className="px-3 py-3">
+                      <div className="flex flex-wrap gap-2">
+                        <button onClick={() => changeStatus(record, 'Active')} className="rounded-sm bg-[#00a65a] px-2 py-1 text-xs text-white">Active</button>
+                        <button onClick={() => changeStatus(record, 'On Hold')} className="rounded-sm bg-[#3c8dbc] px-2 py-1 text-xs text-white">Hold</button>
+                        <button onClick={() => changeStatus(record, 'Archived')} className="rounded-sm bg-[#dd4b39] px-2 py-1 text-xs text-white">Archive</button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {!rows.length ? <tr><td colSpan={9} className="px-3 py-8 text-center text-[#777]">{busy ? 'Loading...' : 'No master records found'}</td></tr> : null}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      <OperationGrid module="master" type={title} />
     </ScreenShell>
   );
 }
@@ -1042,10 +1322,150 @@ function ReportOperationScreen({ title, orders, inventory, setMessage }: { title
   );
 }
 
-function ProcurementOperationScreen({ title }: { title: string }) {
+function ProcurementOperationScreen({ title, setMessage }: { title: string; setMessage: (message: string) => void }) {
+  const lower = title.toLowerCase();
+  const docPrefix = lower.includes('asn') ? 'ASN' : lower.includes('inbound') ? 'INB' : 'PO';
+  const [docs, setDocs] = useState<ProcurementDoc[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [filter, setFilter] = useState('');
+  const [form, setForm] = useState({
+    documentNo: `${docPrefix}-NEW`,
+    vendor: 'ThreadSutra Vendor 1',
+    location: lower.includes('inbound') ? 'Inbound Dock' : 'JX Karawaci',
+    status: lower.includes('asn') ? 'ASN Created' : 'Open',
+    items: 10,
+    value: 10000,
+    expectedDate: '2026-07-18',
+    owner: lower.includes('asn') || lower.includes('inbound') ? 'Inbound Team' : 'Buyer A',
+    asnNo: lower.includes('asn') || lower.includes('inbound') ? 'ASN-NEW' : 'ASN-PENDING',
+    receivedQty: 0,
+  });
+  const rows = docs.filter((doc) => [doc.id, doc.documentNo, doc.vendor, doc.location, doc.status, doc.owner, doc.asnNo].join(' ').toLowerCase().includes(filter.toLowerCase()));
+  const open = docs.filter((doc) => ['Open', 'Approved', 'ASN Created', 'QC Pending'].includes(doc.status)).length;
+  const received = docs.reduce((sum, doc) => sum + doc.receivedQty, 0);
+  const totalValue = docs.reduce((sum, doc) => sum + doc.value, 0);
+
+  useEffect(() => {
+    void load();
+  }, [title]);
+
+  async function load() {
+    setBusy(true);
+    try {
+      const exact = await api.procurement({ type: title });
+      const all = exact.length ? exact : await api.procurement();
+      setDocs(all.filter((doc) => doc.type === title || !exact.length));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function createDoc(event: React.FormEvent) {
+    event.preventDefault();
+    const doc = await api.createProcurement({
+      type: title,
+      ...form,
+      items: Number(form.items || 0),
+      value: Number(form.value || 0),
+      receivedQty: Number(form.receivedQty || 0),
+    });
+    setMessage(`${doc.documentNo} saved`);
+    setForm({ ...form, documentNo: `${docPrefix}-NEW`, asnNo: lower.includes('asn') || lower.includes('inbound') ? 'ASN-NEW' : 'ASN-PENDING', receivedQty: 0 });
+    await load();
+  }
+
+  async function transition(doc: ProcurementDoc, status: string) {
+    const receivedQty = status === 'Received' || status === 'QC Pending' ? doc.items : doc.receivedQty;
+    await api.updateProcurement(doc.id, { status, receivedQty });
+    setMessage(`${doc.documentNo} moved to ${status}`);
+    await load();
+  }
+
+  function exportDocs() {
+    const header = ['Document', 'Type', 'Vendor', 'Location', 'Status', 'Items', 'Received', 'Value', 'Expected Date', 'Owner', 'ASN'];
+    const csv = [header, ...rows.map((doc) => [doc.documentNo, doc.type, doc.vendor, doc.location, doc.status, doc.items, doc.receivedQty, doc.value, doc.expectedDate, doc.owner, doc.asnNo])]
+      .map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(','))
+      .join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${title.replaceAll(' ', '_')}_procurement.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
   return (
-    <ScreenShell title={title} actions={<button className="rounded-sm bg-[#ff9800] px-3 py-1 text-xs font-bold text-white">Create PO</button>}>
+    <ScreenShell title={title} actions={<button onClick={exportDocs} className="rounded-sm bg-[#00a65a] px-3 py-1 text-xs font-bold text-white">Export CSV</button>}>
       <SearchForm fields={['PO No', 'Vendor Code', 'Location', 'ASN No', 'From Date', 'To Date', 'Status']} />
+      <div className="grid gap-3 xl:grid-cols-[360px_1fr]">
+        <Panel title={lower.includes('asn') ? 'Create ASN' : lower.includes('inbound') ? 'Create Inbound' : 'Create PO'}>
+          <form onSubmit={createDoc} className="space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <Input label="Document No" value={form.documentNo} onChange={(documentNo) => setForm({ ...form, documentNo })} />
+              <Select label="Status" value={form.status} options={['Open', 'Approved', 'ASN Created', 'Received', 'QC Pending', 'Closed', 'Cancelled']} onChange={(status) => setForm({ ...form, status })} />
+            </div>
+            <Input label="Vendor" value={form.vendor} onChange={(vendor) => setForm({ ...form, vendor })} />
+            <div className="grid grid-cols-2 gap-3">
+              <Input label="Location" value={form.location} onChange={(location) => setForm({ ...form, location })} />
+              <Input label="Expected Date" value={form.expectedDate} onChange={(expectedDate) => setForm({ ...form, expectedDate })} />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <NumberInput label="Items" value={form.items} onChange={(items) => setForm({ ...form, items })} />
+              <NumberInput label="Value" value={form.value} onChange={(value) => setForm({ ...form, value })} />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <Input label="ASN No" value={form.asnNo} onChange={(asnNo) => setForm({ ...form, asnNo })} />
+              <NumberInput label="Received Qty" value={form.receivedQty} onChange={(receivedQty) => setForm({ ...form, receivedQty })} />
+            </div>
+            <Input label="Owner" value={form.owner} onChange={(owner) => setForm({ ...form, owner })} />
+            <button className="h-9 w-full rounded-sm bg-[#ff9800] text-xs font-bold text-white">Save Document</button>
+          </form>
+        </Panel>
+        <div>
+          <div className="mb-3 grid gap-2 md:grid-cols-4">
+            <ReportCard label="Documents" value={docs.length.toString()} />
+            <ReportCard label="Open Work" value={open.toString()} />
+            <ReportCard label="Received Qty" value={received.toString()} />
+            <ReportCard label="Value" value={new Intl.NumberFormat('en-IN').format(totalValue)} />
+          </div>
+          <div className="mb-2 flex items-center justify-between gap-2 border border-[#d5e3ef] bg-[#fbfdff] px-3 py-2">
+            <span className="text-xs font-bold text-[#555]">{rows.length} document(s)</span>
+            <input value={filter} onChange={(event) => setFilter(event.target.value)} className="h-8 w-64 border border-[#bfc4c8] px-2 text-xs outline-none focus:border-[#3c8dbc]" placeholder="Filter PO, ASN, vendor" />
+          </div>
+          <div className="overflow-x-auto">
+            <table className="vin-grid w-full min-w-[1120px] border-collapse text-sm">
+              <thead className="text-left text-xs uppercase">
+                <tr>{['Document', 'Vendor', 'Location', 'Status', 'Items', 'Received', 'Value', 'Expected', 'Owner', 'ASN', 'Action'].map((head) => <th key={head} className="px-3 py-2">{head}</th>)}</tr>
+              </thead>
+              <tbody>
+                {rows.map((doc) => (
+                  <tr key={doc.id}>
+                    <td className="px-3 py-3 font-bold text-[#006bb6]">{doc.documentNo}</td>
+                    <td className="px-3 py-3">{doc.vendor}</td>
+                    <td className="px-3 py-3">{doc.location}</td>
+                    <td className="px-3 py-3"><Status value={doc.status} /></td>
+                    <td className="px-3 py-3">{doc.items}</td>
+                    <td className="px-3 py-3">{doc.receivedQty}</td>
+                    <td className="px-3 py-3">{new Intl.NumberFormat('en-IN').format(doc.value)}</td>
+                    <td className="px-3 py-3">{doc.expectedDate}</td>
+                    <td className="px-3 py-3">{doc.owner}</td>
+                    <td className="px-3 py-3">{doc.asnNo || '-'}</td>
+                    <td className="px-3 py-3">
+                      <div className="flex flex-wrap gap-2">
+                        <button onClick={() => transition(doc, 'Approved')} className="rounded-sm border border-[#a6c9e2] px-2 py-1 text-xs text-[#006bb6]">Approve</button>
+                        <button onClick={() => transition(doc, lower.includes('asn') || lower.includes('inbound') ? 'QC Pending' : 'ASN Created')} className="rounded-sm bg-[#3c8dbc] px-2 py-1 text-xs text-white">{lower.includes('asn') || lower.includes('inbound') ? 'Receive' : 'ASN'}</button>
+                        <button onClick={() => transition(doc, 'Closed')} className="rounded-sm bg-[#00a65a] px-2 py-1 text-xs text-white">Close</button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {!rows.length ? <tr><td colSpan={11} className="px-3 py-8 text-center text-[#777]">{busy ? 'Loading...' : 'No procurement documents found'}</td></tr> : null}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
       <OperationGrid module="procurement" type={title} />
     </ScreenShell>
   );

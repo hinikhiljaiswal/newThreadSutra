@@ -1,8 +1,8 @@
 import { connect, disconnect, model, models } from 'mongoose';
 import type { Model } from 'mongoose';
-import { importJobs, inventory, operationRecords, orders, reportRuns } from '../common/data';
-import { importJobSchema, inventorySchema, operationSchema, orderSchema, reportRunSchema } from '../common/schemas';
-import type { ImportJob, InventoryItem, OperationRecord, Order, ReportRun } from '../common/database.service';
+import { importJobs, inventory, masterData, operationRecords, orders, procurementDocs, reportRuns, returnCases } from '../common/data';
+import { importJobSchema, inventorySchema, masterDataSchema, operationSchema, orderSchema, procurementDocSchema, reportRunSchema, returnCaseSchema } from '../common/schemas';
+import type { ImportJob, InventoryItem, MasterDataRecord, OperationRecord, Order, ProcurementDoc, ReportRun, ReturnCase } from '../common/database.service';
 
 async function upsertSeedData() {
   const uri = process.env.MONGODB_URI;
@@ -15,16 +15,22 @@ async function upsertSeedData() {
   const OperationModel = (models.OperationRecord as Model<OperationRecord>) ?? model<OperationRecord>('OperationRecord', operationSchema);
   const ImportJobModel = (models.ImportJob as Model<ImportJob>) ?? model<ImportJob>('ImportJob', importJobSchema);
   const ReportRunModel = (models.ReportRun as Model<ReportRun>) ?? model<ReportRun>('ReportRun', reportRunSchema);
+  const ReturnCaseModel = (models.ReturnCase as Model<ReturnCase>) ?? model<ReturnCase>('ReturnCase', returnCaseSchema);
+  const MasterDataModel = (models.MasterDataRecord as Model<MasterDataRecord>) ?? model<MasterDataRecord>('MasterDataRecord', masterDataSchema);
+  const ProcurementDocModel = (models.ProcurementDoc as Model<ProcurementDoc>) ?? model<ProcurementDoc>('ProcurementDoc', procurementDocSchema);
 
-  await Promise.all([OrderModel.syncIndexes(), InventoryModel.syncIndexes(), OperationModel.syncIndexes(), ImportJobModel.syncIndexes(), ReportRunModel.syncIndexes()]);
+  await Promise.all([OrderModel.syncIndexes(), InventoryModel.syncIndexes(), OperationModel.syncIndexes(), ImportJobModel.syncIndexes(), ReportRunModel.syncIndexes(), ReturnCaseModel.syncIndexes(), MasterDataModel.syncIndexes(), ProcurementDocModel.syncIndexes()]);
   await Promise.all(orders.map((order) => OrderModel.updateOne({ id: order.id }, { $setOnInsert: order }, { upsert: true })));
   await Promise.all(inventory.map((item) => InventoryModel.updateOne({ sku: item.sku }, { $setOnInsert: item }, { upsert: true })));
   await Promise.all(operationRecords.map((record) => OperationModel.updateOne({ id: record.id }, { $setOnInsert: record }, { upsert: true })));
   await Promise.all(importJobs.map((job) => ImportJobModel.updateOne({ id: job.id }, { $setOnInsert: job }, { upsert: true })));
   await Promise.all(reportRuns.map((run) => ReportRunModel.updateOne({ id: run.id }, { $setOnInsert: run }, { upsert: true })));
+  await Promise.all(returnCases.map((item) => ReturnCaseModel.updateOne({ id: item.id }, { $setOnInsert: item }, { upsert: true })));
+  await Promise.all(masterData.map((item) => MasterDataModel.updateOne({ id: item.id }, { $setOnInsert: item }, { upsert: true })));
+  await Promise.all(procurementDocs.map((item) => ProcurementDocModel.updateOne({ id: item.id }, { $setOnInsert: item }, { upsert: true })));
 
-  const [orderCount, inventoryCount, operationCount, importCount, reportCount] = await Promise.all([OrderModel.countDocuments(), InventoryModel.countDocuments(), OperationModel.countDocuments(), ImportJobModel.countDocuments(), ReportRunModel.countDocuments()]);
-  console.log(`MongoDB initialized: ${orderCount} orders, ${inventoryCount} inventory items, ${operationCount} operation records, ${importCount} import jobs, ${reportCount} report runs.`);
+  const [orderCount, inventoryCount, operationCount, importCount, reportCount, returnCount, masterCount, procurementCount] = await Promise.all([OrderModel.countDocuments(), InventoryModel.countDocuments(), OperationModel.countDocuments(), ImportJobModel.countDocuments(), ReportRunModel.countDocuments(), ReturnCaseModel.countDocuments(), MasterDataModel.countDocuments(), ProcurementDocModel.countDocuments()]);
+  console.log(`MongoDB initialized: ${orderCount} orders, ${inventoryCount} inventory items, ${operationCount} operation records, ${importCount} import jobs, ${reportCount} report runs, ${returnCount} return cases, ${masterCount} master records, ${procurementCount} procurement docs.`);
 }
 
 upsertSeedData()

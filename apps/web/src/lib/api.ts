@@ -21,6 +21,9 @@ export type InventoryItem = { sku: string; name: string; location: string; avail
 export type OperationRecord = { id: string; module: string; type: string; name: string; status: string; location: string; owner: string; amount: number; quantity: number };
 export type ImportJob = { id: string; type: string; fileName: string; status: string; rows: number; successRows: number; failedRows: number; owner: string; message: string };
 export type ReportRun = { id: string; type: string; status: string; rows: number; owner: string; format: string; totalAmount: number; message: string };
+export type ReturnCase = { id: string; type: string; orderId: string; customer: string; city: string; status: string; reason: string; disposition: string; quantity: number; refundAmount: number; owner: string; dock: string };
+export type MasterDataRecord = { id: string; type: string; code: string; name: string; category: string; status: string; location: string; contact: string; owner: string; balance: number };
+export type ProcurementDoc = { id: string; type: string; documentNo: string; vendor: string; location: string; status: string; items: number; value: number; expectedDate: string; owner: string; asnNo: string; receivedQty: number };
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const token = typeof window === 'undefined' ? '' : window.localStorage.getItem('eretail-token');
@@ -121,6 +124,51 @@ export const api = {
     }),
   updateReport: (id: string, body: Partial<Pick<ReportRun, 'status' | 'rows' | 'format' | 'totalAmount' | 'message'>>) =>
     request<ReportRun>(`/reports/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+  returns: (params?: { type?: string }) => {
+    const query = new URLSearchParams();
+    if (params?.type) query.set('type', params.type);
+    return request<ReturnCase[]>(`/returns${query.toString() ? `?${query}` : ''}`);
+  },
+  createReturn: (body: Omit<ReturnCase, 'id'>) =>
+    request<ReturnCase>('/returns', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  updateReturn: (id: string, body: Partial<Omit<ReturnCase, 'id' | 'type' | 'orderId'>>) =>
+    request<ReturnCase>(`/returns/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+  masterData: (params?: { type?: string }) => {
+    const query = new URLSearchParams();
+    if (params?.type) query.set('type', params.type);
+    return request<MasterDataRecord[]>(`/master-data${query.toString() ? `?${query}` : ''}`);
+  },
+  createMasterData: (body: Omit<MasterDataRecord, 'id'>) =>
+    request<MasterDataRecord>('/master-data', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  updateMasterData: (id: string, body: Partial<Omit<MasterDataRecord, 'id' | 'type' | 'code'>>) =>
+    request<MasterDataRecord>(`/master-data/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+  procurement: (params?: { type?: string }) => {
+    const query = new URLSearchParams();
+    if (params?.type) query.set('type', params.type);
+    return request<ProcurementDoc[]>(`/procurement${query.toString() ? `?${query}` : ''}`);
+  },
+  createProcurement: (body: Omit<ProcurementDoc, 'id'>) =>
+    request<ProcurementDoc>('/procurement', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  updateProcurement: (id: string, body: Partial<Omit<ProcurementDoc, 'id' | 'type' | 'documentNo'>>) =>
+    request<ProcurementDoc>(`/procurement/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(body),
     }),

@@ -8,9 +8,12 @@ import { DashboardModule } from './dashboard/dashboard.module';
 import { HealthModule } from './health/health.module';
 import { ImportsModule } from './imports/imports.module';
 import { InventoryModule } from './inventory/inventory.module';
+import { MasterDataModule } from './master-data/master-data.module';
 import { OperationsModule } from './operations/operations.module';
 import { OrdersModule } from './orders/orders.module';
+import { ProcurementModule } from './procurement/procurement.module';
 import { ReportsModule } from './reports/reports.module';
+import { ReturnsModule } from './returns/returns.module';
 
 @Module({
   imports: [
@@ -21,10 +24,13 @@ import { ReportsModule } from './reports/reports.module';
     HealthModule,
     DashboardModule,
     ImportsModule,
+    MasterDataModule,
     OrdersModule,
     InventoryModule,
     OperationsModule,
     ReportsModule,
+    ProcurementModule,
+    ReturnsModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })
