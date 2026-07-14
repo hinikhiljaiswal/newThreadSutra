@@ -29,6 +29,11 @@ export class AuthController {
     return this.auth.login(dto);
   }
 
+  @Get('demo')
+  demo() {
+    return this.auth.demoInfo();
+  }
+
   @Get('me')
   me(@Headers('authorization') authorization?: string) {
     const user = this.auth.verify(authorization);

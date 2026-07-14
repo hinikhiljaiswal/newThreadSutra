@@ -42,4 +42,13 @@ export class AuthService {
       return null;
     }
   }
+
+  demoInfo() {
+    return {
+      authBuild: 'demo-auth-v2',
+      acceptedLoginIds: demoUser.loginIds,
+      organization: demoUser.organization,
+      username: demoUser.username,
+    };
+  }
 }

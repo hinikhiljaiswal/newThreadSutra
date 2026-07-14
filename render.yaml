@@ -19,6 +19,10 @@ services:
         value: eretail_replica
       - key: API_PORT
         value: "5050"
+      - key: NEXT_PUBLIC_API_URL
+        value: ""
+      - key: NEXT_PUBLIC_API_HOST
+        value: ""
 
   - type: web
     name: eretail-api
