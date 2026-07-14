@@ -1,4 +1,19 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL || (process.env.NEXT_PUBLIC_API_HOST ? `https://${process.env.NEXT_PUBLIC_API_HOST}` : '');
+const configuredApiUrl = process.env.NEXT_PUBLIC_API_URL || (process.env.NEXT_PUBLIC_API_HOST ? `https://${process.env.NEXT_PUBLIC_API_HOST}` : '');
+
+function apiBaseUrl() {
+  if (typeof window === 'undefined') return configuredApiUrl;
+  if (!configuredApiUrl) return '';
+
+  try {
+    const url = new URL(configuredApiUrl);
+    const appHost = window.location.hostname;
+    const pointsAtLocalhost = ['localhost', '127.0.0.1', '0.0.0.0'].includes(url.hostname);
+    const appIsLocalhost = ['localhost', '127.0.0.1', '0.0.0.0'].includes(appHost);
+    return pointsAtLocalhost && !appIsLocalhost ? '' : configuredApiUrl;
+  } catch {
+    return configuredApiUrl;
+  }
+}
 
 export type Metric = { label: string; value: number; tone: string; currency?: boolean };
 export type Order = { id: string; channel: string; customer: string; status: string; items: number; value: number; city: string; sla: string };
@@ -7,7 +22,7 @@ export type OperationRecord = { id: string; module: string; type: string; name: 
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const token = typeof window === 'undefined' ? '' : window.localStorage.getItem('eretail-token');
-  const response = await fetch(`${API_URL}/api${path}`, {
+  const response = await fetch(`${apiBaseUrl()}/api${path}`, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
